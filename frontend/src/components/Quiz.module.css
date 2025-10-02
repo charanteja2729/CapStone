@@ -1,119 +1,198 @@
-.quizSection {
-    border-top: 1px solid #e5e7eb;
-    padding-top: 2rem;
-    margin-top: 2rem;
+/* Quiz.module.css
+   Styles for Quiz component (module).
+   Matches the app's glass/panel look and uses --mx/--my for subtle light.
+*/
+
+.quizContainer {
+  width: 100%;
+  max-width: 880px;
+  margin: 14px auto;
+  padding: 14px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.012));
+  border: 1px solid rgba(255,255,255,0.03);
+  box-shadow: 0 10px 28px rgba(2,6,23,0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+  overflow: visible;
 }
 
-.quizContainer h2, .resultsContainer h2 {
-    text-align: center;
-    font-size: 1.5rem;
-    font-weight: bold;
-    color: #1f2937;
-    margin-bottom: 1.5rem;
+/* faint interactive rim */
+.quizContainer::before {
+  content: "";
+  position: absolute;
+  left: -8%;
+  top: -12%;
+  width: 120%;
+  height: 130%;
+  pointer-events: none;
+  background: radial-gradient(260px circle at var(--mx,50%) var(--my,50%),
+    rgba(124,92,255,0.03),
+    rgba(0,210,255,0.008) 18%,
+    transparent 42%);
+  mix-blend-mode: screen;
+  transition: opacity 260ms ease, transform 260ms ease;
+  z-index: 0;
+  opacity: 1;
 }
 
+h2 {
+  margin: 0;
+  color: #fff;
+  font-size: 18px;
+  letter-spacing: -0.2px;
+}
+
+/* question card */
 .questionCard {
-    background-color: #f9fafb;
-    border: 1px solid #e5e7eb;
-    border-radius: 0.5rem;
-    padding: 1.5rem;
+  padding: 12px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.015), rgba(255,255,255,0.01));
+  border: 1px solid rgba(255,255,255,0.02);
+  box-shadow: 0 8px 22px rgba(2,6,23,0.36);
+  z-index: 1;
 }
 
 .questionText {
-    font-size: 1.1rem;
-    margin-bottom: 1.5rem;
+  margin: 0 0 10px 0;
+  color: #eaf4ff;
+  font-size: 15px;
+  line-height: 1.45;
 }
 
+/* options */
 .optionsContainer {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
 }
 
 .optionButton {
-    width: 100%;
-    padding: 0.75rem;
-    text-align: left;
-    background-color: #fff;
-    border: 1px solid #d1d5db;
-    border-radius: 0.5rem;
-    cursor: pointer;
-    transition: background-color 0.2s, border-color 0.2s;
-    color: #1f2937;
-    font-weight: normal;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.04);
+  background: rgba(255,255,255,0.02);
+  color: #eaf4ff;
+  cursor: pointer;
+  font-weight: 600;
+  transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
+  text-align: left;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.25);
 }
 
 .optionButton:hover {
-    background-color: #f3f4f6;
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px rgba(124,92,255,0.08);
 }
+
+.optionButton:active { transform: translateY(0); }
 
 .selected {
-    background-color: #dbeafe;
-    border-color: #3b82f6;
-    font-weight: bold;
+  background: linear-gradient(90deg, rgba(124,92,255,0.16), rgba(0,210,255,0.06));
+  border-color: rgba(124,92,255,0.35);
+  box-shadow: 0 12px 30px rgba(124,92,255,0.10);
 }
 
+/* navigation */
 .quizNavigation {
-    display: flex;
-    justify-content: space-between;
-    margin-top: 1.5rem;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 8px;
+  z-index: 1;
 }
 
 .navButton {
-    width: 120px;
-    background-color: #2563eb;
-    color: white;
-    font-weight: bold;
-    padding: 0.75rem 1rem;
-    border: none;
-    border-radius: 0.5rem;
-    cursor: pointer;
-    transition: background-color 0.3s;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.04);
+  background: rgba(255,255,255,0.02);
+  color: #eaf4ff;
+  cursor: pointer;
+  font-weight: 700;
+  transition: transform 140ms ease, box-shadow 140ms ease;
 }
+
 .navButton:hover {
-    background-color: #1d4ed8;
+  transform: translateY(-3px);
+  box-shadow: 0 10px 26px rgba(0,0,0,0.25);
 }
-.navButton:disabled {
-    background-color: #9ca3af;
-    cursor: not-allowed;
+
+.navButton[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .submitQuizBtn {
-    background-color: #10b981;
-}
-.submitQuizBtn:hover {
-    background-color: #059669;
+  background: linear-gradient(90deg, var(--accent, #7c5cff), var(--accent-2, #00d2ff));
+  border: none;
+  color: white;
+  box-shadow: 0 10px 30px rgba(124,92,255,0.12);
 }
 
-/* Results Styles */
-.resultsContainer .score {
-    text-align: center;
-    font-size: 1.5rem;
-    font-weight: bold;
-    margin-bottom: 2rem;
-    color: #1d4ed8;
+/* results view */
+.resultsContainer {
+  width: 100%;
+  max-width: 880px;
+  margin: 14px auto;
+  padding: 14px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.012));
+  border: 1px solid rgba(255,255,255,0.02);
+  box-shadow: 0 10px 24px rgba(2,6,23,0.4);
+  z-index: 0;
+}
+
+.score {
+  font-weight: 800;
+  font-size: 16px;
+  color: #fff;
+  margin: 8px 0 12px 0;
 }
 
 .answersReview {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .questionReview {
-    background-color: #f9fafb;
-    padding: 1rem;
-    border-radius: 0.5rem;
-}
-
-.questionReview p {
-    margin: 0.5rem 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.015);
+  border: 1px solid rgba(255,255,255,0.02);
 }
 
 .correct {
-    color: #059669;
+  color: #b7ffd5; /* light green */
+  font-weight: 700;
 }
 
 .incorrect {
-    color: #b91c1c;
+  color: #ffb7b7; /* soft red */
+  font-weight: 700;
+}
+
+/* accessibility focus */
+.optionButton:focus-visible,
+.navButton:focus-visible,
+.submitQuizBtn:focus-visible {
+  outline: 3px solid rgba(124,92,255,0.12);
+  outline-offset: 3px;
+}
+
+/* responsive */
+@media (max-width: 720px) {
+  .optionsContainer { grid-template-columns: 1fr; }
+  .quizNavigation { justify-content: center; flex-wrap: wrap; }
+}
+
+/* reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+  .quizContainer::before { transition: none !important; }
 }

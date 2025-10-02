@@ -593,8 +593,10 @@ def submit_quiz():
     MAX_INCORRECT_KEEP = 200
 
     # DO NOT add individual incorrect questions to DB by default.
-    # If the user scored less than half, add a single topic entry (the topic they asked to summarize)
     low_score = (correct / graded_total) < 0.5
+
+    topic_name = ''
+    topic_added = False
 
     if low_score:
         # Prefer explicit topic provided in request, otherwise try to derive from quiz
@@ -604,7 +606,6 @@ def submit_quiz():
             topic_name = (first.get('topic') or first.get('title') or first.get('prompt') or '').strip()
 
         if topic_name:
-            # store a single topic-level entry in incorrect_answers instead of all questions
             topic_entry = {
                 'question': f'Topic: {topic_name}',
                 'given': '',
@@ -613,7 +614,6 @@ def submit_quiz():
             }
             push_map['incorrect_answers'] = {'$each': [topic_entry], '$slice': -MAX_INCORRECT_KEEP}
 
-            # Also push into recent_topics so it surfaces in user's history
             recent_topic_push = {
                 'title': topic_name,
                 'time': datetime.utcnow()
@@ -624,43 +624,60 @@ def submit_quiz():
                 '$slice': 3
             }
 
-    # If you ever want to store individual incorrect question details for other cases,
-    # you could add them here (e.g., if not low_score) — currently we intentionally skip that.
-
     if push_map:
         update_ops['$push'] = push_map
 
+    # Log what we're about to do so we can debug why DB didn't change
     try:
-        updated = users_col.find_one_and_update(
-            {'_id': user['_id']},
-            update_ops,
-            return_document=ReturnDocument.AFTER,
-            projection={'points': 1, 'recent_topics': 1, 'incorrect_answers': 1}
+        logger.info(
+            "submit-quiz: user_id=%s graded_total=%d correct=%d low_score=%s topic_name=%s update_ops=%s",
+            str(user.get('_id')), graded_total, correct, low_score, topic_name, update_ops
         )
+    except Exception:
+        logger.debug("submit-quiz: failed to log update details")
 
+    # Use centralized helper for robust update + fallback behavior
+    try:
+        updated = _apply_user_update(user['_id'], update_ops, projection={'points': 1, 'recent_topics': 1, 'incorrect_answers': 1})
         if not updated:
-            logger.warning('submit-quiz: find_one_and_update returned no document for _id=%s', user['_id'])
-            users_col.update_one({'_id': user['_id']}, update_ops)
-            updated = users_col.find_one({'_id': user['_id']}, {'points': 1, 'recent_topics': 1, 'incorrect_answers': 1})
+            logger.warning('submit-quiz: update returned no document for _id=%s', user['_id'])
+            # try one more raw attempt to surface errors in logs
+            try:
+                users_col.update_one({'_id': user['_id']}, update_ops)
+                updated = users_col.find_one({'_id': user['_id']}, {'points': 1, 'recent_topics': 1, 'incorrect_answers': 1})
+            except Exception:
+                logger.exception('submit-quiz: second attempt update_one failed')
+                return jsonify({'error': 'Failed to update user results.'}), 500
 
     except Exception:
-        logger.exception('Error updating user during submit-quiz')
-        try:
-            users_col.update_one({'_id': user['_id']}, update_ops)
-            updated = users_col.find_one({'_id': user['_id']}, {'points': 1, 'recent_topics': 1, 'incorrect_answers': 1})
-        except Exception:
-            logger.exception('Fallback update also failed')
-            return jsonify({'error': 'Failed to update user results.'}), 500
+        logger.exception('Error updating user during submit-quiz via helper')
+        return jsonify({'error': 'Failed to update user results.'}), 500
+
+    # Check if topic was actually added (defensive)
+    try:
+        incorrect_answers = updated.get('incorrect_answers') or []
+        recent_topics = updated.get('recent_topics') or []
+        if topic_name:
+            # presence test — we expect at least one element whose 'question' contains the topic string
+            for item in incorrect_answers[-5:]:
+                qtext = (item.get('question') or '') if isinstance(item, dict) else ''
+                if topic_name in qtext:
+                    topic_added = True
+                    break
+        logger.info("submit-quiz: topic_added=%s incorrect_count=%d recent_topics_count=%d", topic_added, len(incorrect_answers), len(recent_topics))
+    except Exception:
+        logger.exception("submit-quiz: error while verifying updated document")
 
     resp = {
         'total': graded_total,
         'correct': correct,
         'points_awarded': points_awarded,
-        # return current points if available
         'points': updated.get('points', None),
         'recent_topics': (updated.get('recent_topics') or [])[:3],
-        # Show incorrect questions to the user in the response, but do NOT persist them to DB
-        'incorrect_preview': incorrect_list[-10:]
+        'incorrect_preview': incorrect_list[-10:],
+        # helpful debugging fields (remove in prod if you like)
+        'topic_sent': topic_name,
+        'topic_added': topic_added
     }
 
     return jsonify(resp)

@@ -1,113 +1,232 @@
+/* Summarizer.module.css
+   Panel & form for the Summarizer component.
+   Uses --mx / --my (set on :root by App) for subtle lighting if available.
+*/
+
 .formContainer {
-    margin-top: 1.5rem;
+  width: 100%;
+  max-width: 880px;
+  margin: 14px auto;
+  padding: 16px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.012), rgba(255,255,255,0.01));
+  border: 1px solid rgba(255,255,255,0.03);
+  box-shadow: 0 10px 28px rgba(2,6,23,0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+  overflow: visible;
+}
+
+/* faint interactive rim */
+.formContainer::before {
+  content: "";
+  position: absolute;
+  left: -8%;
+  top: -16%;
+  width: 120%;
+  height: 140%;
+  pointer-events: none;
+  background: radial-gradient(260px circle at var(--mx,50%) var(--my,50%),
+    rgba(124,92,255,0.03),
+    rgba(0,210,255,0.008) 20%,
+    transparent 45%);
+  mix-blend-mode: screen;
+  transition: opacity 260ms ease, transform 260ms ease;
+  z-index: 0;
+  opacity: 1;
 }
 
 .textareaGroup {
-    margin-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1;
 }
 
 .textareaGroup label {
-    display: block;
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: #374151;
-    margin-bottom: 0.25rem;
+  font-size: 13px;
+  color: rgba(255,255,255,0.9);
+  font-weight: 600;
 }
 
 .textarea {
-    width: 100%;
-    padding: 0.75rem;
-    border: 1px solid #d1d5db;
-    border-radius: 0.5rem;
-    transition: border-color 0.2s, box-shadow 0.2s;
-    box-sizing: border-box;
-    font-family: inherit;
-    font-size: 1rem;
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.04);
+  background: rgba(255,255,255,0.02);
+  color: #eaf4ff;
+  font-size: 14px;
+  line-height: 1.5;
+  box-sizing: border-box;
+  outline: none;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.textarea::placeholder {
+  color: rgba(255,255,255,0.36);
 }
 
 .textarea:focus {
-    outline: none;
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
+  transform: translateY(-3px);
+  box-shadow: 0 12px 30px rgba(124,92,255,0.06);
+  border-color: rgba(124,92,255,0.45);
 }
 
+/* primary generate button */
 .generateButton {
-    width: 100%;
-    background-color: #2563eb;
-    color: white;
-    font-weight: bold;
-    padding: 0.75rem 1rem;
-    border: none;
-    border-radius: 0.5rem;
-    cursor: pointer;
-    transition: background-color 0.3s;
-    font-size: 1rem;
+  align-self: flex-start;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: none;
+  font-weight: 700;
+  cursor: pointer;
+  background: linear-gradient(90deg, var(--accent, #7c5cff), var(--accent-2, #00d2ff));
+  color: white;
+  box-shadow: 0 8px 26px rgba(124,92,255,0.12);
+  transition: transform 150ms ease, box-shadow 150ms ease, filter 150ms ease;
+  z-index: 1;
 }
 
 .generateButton:hover {
-    background-color: #1d4ed8;
+  transform: translateY(-3px);
+  filter: saturate(1.04) brightness(1.02);
 }
 
-.generateButton:disabled {
-    background-color: #9ca3af;
-    cursor: not-allowed;
+.generateButton[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
+/* Generated notes panel */
 .notesSection {
-    border-top: 1px solid #e5e7eb;
-    padding-top: 2rem;
-    margin-top: 2rem;
+  margin: 12px auto;
+  padding: 14px;
+  width: 100%;
+  max-width: 880px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.012));
+  border: 1px solid rgba(255,255,255,0.02);
+  box-shadow: 0 10px 24px rgba(2,6,23,0.4);
+  z-index: 0;
 }
 
-.notesSection h2 {
-    font-size: 1.5rem;
-    font-weight: bold;
-    color: #1f2937;
-    text-align: center;
-    margin-bottom: 1.5rem;
-}
-
+/* Markdown / prose styling */
 .prose {
-    background-color: #f9fafb;
-    border: 1px solid #e5e7eb;
-    border-radius: 0.5rem;
-    padding: 1.5rem;
-    line-height: 1.6;
+  margin-top: 12px;
+  color: #eaf4ff;
+  line-height: 1.65;
+  font-size: 15px;
+  /* limit extremely wide lines */
+  max-width: 100%;
+  word-wrap: break-word;
 }
 
-.prose h3 {
-    font-weight: bold;
-    border-bottom: 2px solid #e5e7eb;
-    padding-bottom: 0.5rem;
-    margin-top: 1.5rem;
-}
-.prose ul {
-    list-style-type: disc;
-    padding-left: 1.5rem;
+/* headings */
+.prose h1, .prose h2, .prose h3, .prose h4 {
+  margin: 0.6em 0 0.4em 0;
+  color: #fff;
+  line-height: 1.2;
 }
 
+.prose h1 { font-size: 20px; }
+.prose h2 { font-size: 18px; }
+.prose h3 { font-size: 16px; }
+
+/* paragraphs and lists */
+.prose p {
+  margin: 0.5em 0;
+  color: rgba(255,255,255,0.92);
+}
+
+.prose ul, .prose ol {
+  margin: 0.5em 0 0.5em 1.25em;
+  padding: 0;
+}
+
+.prose li {
+  margin: 0.35em 0;
+}
+
+/* code blocks and inline code */
+.prose pre {
+  background: rgba(12,14,22,0.6);
+  padding: 12px;
+  border-radius: 8px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  border: 1px solid rgba(255,255,255,0.03);
+  margin: 0.6em 0;
+}
+
+.prose code {
+  background: rgba(255,255,255,0.03);
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', monospace;
+  font-size: 13px;
+}
+
+/* blockquote */
+.prose blockquote {
+  margin: 0.6em 0;
+  padding: 8px 12px;
+  border-left: 3px solid rgba(124,92,255,0.28);
+  background: linear-gradient(90deg, rgba(124,92,255,0.02), rgba(0,0,0,0));
+  color: rgba(255,255,255,0.9);
+  border-radius: 6px;
+}
+
+/* quiz button area */
 .quizButtonContainer {
-    text-align: center;
-    margin-top: 2rem;
+  margin-top: 12px;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
 }
 
 .quizButton {
-    width: auto;
-    padding: 0.75rem 1.5rem;
-    background-color: #10b981;
-    color: white;
-    font-weight: bold;
-    border: none;
-    border-radius: 0.5rem;
-    cursor: pointer;
-    transition: background-color 0.3s;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: none;
+  font-weight: 700;
+  cursor: pointer;
+  background: rgba(255,255,255,0.035);
+  color: #eaf4ff;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+  border: 1px solid rgba(255,255,255,0.03);
 }
 
 .quizButton:hover {
-    background-color: #059669;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 18px rgba(0,0,0,0.35);
 }
 
-.quizButton:disabled {
-    background-color: #9ca3af;
-    cursor: not-allowed;
+/* responsiveness */
+@media (max-width: 720px) {
+  .textarea { min-height: 140px; }
+  .generateButton { width: 100%; align-self: stretch; }
+  .quizButtonContainer { justify-content: center; }
+}
+
+/* accessibility focus */
+.textarea:focus-visible,
+.generateButton:focus-visible,
+.quizButton:focus-visible {
+  outline: 3px solid rgba(124,92,255,0.12);
+  outline-offset: 3px;
+}
+
+/* reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+  .formContainer::before { transition: none !important; }
 }

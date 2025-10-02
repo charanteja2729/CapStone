@@ -1,81 +1,232 @@
-/* General Body and App Container Styles */
+/* App.css — layout + interactive background for the whole app
+   Uses --mx and --my (percent strings, e.g. "50%") for interactive lighting & parallax.
+   If not set, defaults to center (50% 50%).
+*/
+
+:root{
+  --bg-dark-1: #071027;
+  --bg-dark-2: #071827;
+  --panel-bg: rgba(255,255,255,0.02);
+  --glass-blur: 8px;
+  --accent: #7c5cff;
+  --accent-2: #00d2ff;
+  --muted: rgba(255,255,255,0.72);
+  --card-radius: 12px;
+  --gap: 16px;
+  --content-max: 1100px;
+
+  /* interactive light defaults (can be overridden by JS) */
+  --mx: 50%;
+  --my: 50%;
+}
+
+/* global page */
 body {
-    margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    background-color: #f9fafb;
+  margin: 0;
+  min-height: 100vh;
+  background: linear-gradient(180deg, var(--bg-dark-1) 0%, var(--bg-dark-2) 100%);
+  color: #e6eef8;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.45;
+  overflow-y: auto;
 }
 
+/* subtle page-level interactive vignette that follows pointer */
+body::before {
+  content: "";
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  background: radial-gradient(520px circle at var(--mx) var(--my),
+              rgba(124,92,255,0.05),
+              rgba(0,210,255,0.02) 20%,
+              transparent 40%);
+  mix-blend-mode: screen;
+  transition: opacity 260ms ease;
+  z-index: 0;
+  opacity: 1;
+}
+
+/* centered spinner wrapper used during auth-check */
+.centered {
+  min-height: 70vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* main app container */
 .app-container {
-    min-height: 100vh;
-    padding: 2rem;
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    box-sizing: border-box;
+  position: relative;
+  z-index: 1; /* above page vignette */
+  max-width: var(--content-max);
+  margin: 28px auto;
+  padding: 22px;
+  border-radius: calc(var(--card-radius) + 6px);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  border: 1px solid rgba(255,255,255,0.03);
+  box-shadow: 0 12px 36px rgba(2,6,23,0.5);
 }
 
-.main-content {
-    width: 100%;
-    max-width: 48rem;
-    background-color: white;
-    border-radius: 1rem;
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-    padding: 3rem;
-    box-sizing: border-box;
-    margin: 2rem 0;
+/* Header area */
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 18px;
 }
 
-/* Header Styles */
-.header {
-    text-align: center;
-    margin-bottom: 2rem;
+.dashboard-header h1 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: -0.2px;
+  color: #fff;
 }
 
-.header h1 {
-    font-size: 2.25rem;
-    font-weight: bold;
-    color: #1f2937;
+.dashboard-header p {
+  margin: 2px 0 0 0;
+  font-size: 13px;
+  color: var(--muted);
 }
 
-.header p {
-    color: #6b7280;
-    margin-top: 0.5rem;
+/* profile menu placeholder */
+.profile-menu {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-/* Shared Spinner Styles */
-.spinner-container { 
-    text-align: center; 
-    padding: 2rem; 
-}
-.spinner-text { 
-    color: #555; 
-    font-weight: 500; 
-    margin-top: 1rem; 
-}
-.spinner {
-    display: inline-block;
-    width: 50px;
-    height: 50px;
-    border: 5px solid rgba(0,0,0,.1);
-    border-radius: 50%;
-    border-top-color: #3498db;
-    animation: spin 1s ease-in-out infinite;
-}
-@keyframes spin {
-    to { transform: rotate(360deg); }
+/* Summarizer area (assume component uses these classes) */
+.summarizer {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
 }
 
-/* Shared Error Message Styles */
+.summarizer .text-area {
+  min-height: 180px;
+  width: 100%;
+  resize: vertical;
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.04);
+  background: rgba(255,255,255,0.02);
+  color: #eef6ff;
+  font-size: 14px;
+  outline: none;
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.summarizer .text-area:focus {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 30px rgba(124,92,255,0.06);
+  border-color: rgba(124,92,255,0.5);
+}
+
+/* Controls & buttons */
+.controls {
+  display:flex;
+  gap: 12px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+
+.primary-btn {
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  color: white;
+  font-weight: 600;
+  box-shadow: 0 10px 26px rgba(124,92,255,0.12);
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.primary-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 36px rgba(124,92,255,0.16);
+}
+
+.secondary-btn {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.06);
+  color: #e8f3ff;
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.9);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Quiz area */
+.quiz-section {
+  margin-top: 18px;
+  padding: 14px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.015));
+  border: 1px solid rgba(255,255,255,0.02);
+}
+
+/* Error message */
 .error-message {
-    background-color: #fee2e2;
-    border-left: 4px solid #ef4444;
-    color: #b91c1c;
-    padding: 1rem;
-    border-radius: 0.5rem;
-    margin-top: 1.5rem;
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, rgba(255,107,107,0.06), rgba(255,107,107,0.03));
+  color: #ffd6d6;
+  border: 1px solid rgba(255,107,107,0.08);
 }
 
-.error-title {
-    font-weight: bold;
-    margin: 0 0 0.5rem 0;
+.error-title { font-weight: 700; margin: 0 0 6px 0; color: #fff; }
+
+/* small helper utilities */
+.row { display:flex; gap:12px; align-items:center; }
+.col { display:flex; flex-direction:column; gap:8px; }
+
+/* tiny card micro-parallax for content cards (uses --mx/--my) */
+.card {
+  position: relative;
+  padding: 12px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.015), rgba(255,255,255,0.01));
+  border: 1px solid rgba(255,255,255,0.025);
+  transition: transform 260ms cubic-bezier(.2,.9,.2,1), box-shadow 260ms ease;
+}
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(220px circle at var(--mx,50%) var(--my,50%), rgba(124,92,255,0.03), transparent 40%);
+  mix-blend-mode: screen;
+  opacity: 0.9;
+  transition: opacity 220ms ease;
+}
+
+/* Responsive */
+@media (max-width: 880px) {
+  .app-container { margin: 18px; padding: 16px; }
+  .dashboard-header { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .summarizer .text-area { min-height: 140px; }
+}
+
+/* Reduced motion - prefer accessibility */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+  body::before { opacity: 0.6; }
 }

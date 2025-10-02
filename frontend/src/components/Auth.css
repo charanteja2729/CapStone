@@ -1,0 +1,229 @@
+/* Auth.css - stylish, responsive auth card with mouse-interactive lighting + subtle motion
+   How it works:
+   - JS will update --mx and --my (percent values) on the .auth-card element based on mouse/touch
+   - those variables drive radial gradients, glow positions and subtle parallax transforms
+*/
+
+:root{
+  --card-bg: rgba(255,255,255,0.06);
+  --glass-blur: 10px;
+  --accent: #7c5cff; /* primary accent */
+  --accent-2: #00d2ff; /* secondary accent */
+  --muted: rgba(255,255,255,0.75);
+  --danger: #ff6b6b;
+  --radius: 16px;
+  --gap: 14px;
+}
+
+/* Ensure full-viewport centering when used on a page */
+.auth-wrapper {
+  --mx: 50%;
+  --my: 50%;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: linear-gradient(180deg,#0f1724 0%, #071027 100%);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+}
+
+.auth-card{
+  position: relative;
+  width: min(420px, 95%);
+  padding: 28px 24px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(2,6,23,0.6), inset 0 1px 0 rgba(255,255,255,0.02);
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid rgba(255,255,255,0.04);
+  transition: transform 300ms cubic-bezier(.2,.9,.2,1), box-shadow 300ms ease;
+  transform-origin: center center;
+}
+
+/* interactive lift on hover */
+.auth-card:hover{
+  transform: translateY(-6px) scale(1.006);
+  box-shadow: 0 18px 40px rgba(2,6,23,0.75), inset 0 1px 0 rgba(255,255,255,0.03);
+}
+
+/* dynamic lighting blob that follows the cursor (radial gradient) */
+.auth-card:before{
+  content: "";
+  position: absolute;
+  left: -30%;
+  top: -30%;
+  width: 160%;
+  height: 160%;
+  pointer-events: none;
+  background: radial-gradient(600px circle at var(--mx) var(--my), rgba(124,92,255,0.12), rgba(0,210,255,0.06) 20%, transparent 40%);
+  mix-blend-mode: screen;
+  transition: opacity 300ms ease;
+  opacity: 1;
+  transform: translateZ(0);
+}
+
+/* faint moving shapes for depth */
+.auth-card:after{
+  content: "";
+  position: absolute;
+  right: -10%;
+  bottom: -10%;
+  width: 60%;
+  height: 60%;
+  background: conic-gradient(from 120deg at 50% 50%, rgba(0,210,255,0.035), rgba(124,92,255,0.04));
+  filter: blur(36px);
+  opacity: 0.9;
+  transform: translateX(calc((var(--mx,50%) - 50%) * 0.18)) translateY(calc((var(--my,50%) - 50%) * 0.18));
+  pointer-events: none;
+}
+
+/* Header */
+.auth-card h2{
+  margin: 0 0 6px 0;
+  font-size: 20px;
+  color: white;
+  letter-spacing: -0.2px;
+}
+
+.auth-card p.subtle{
+  margin: 0 0 18px 0;
+  font-size: 13px;
+  color: rgba(255,255,255,0.72);
+}
+
+.auth-form{
+  display: grid;
+  gap: var(--gap);
+}
+
+.form-row{
+  display: flex;
+  flex-direction: column;
+}
+
+.form-row label{
+  font-size: 12px;
+  color: rgba(255,255,255,0.8);
+  margin-bottom: 6px;
+}
+
+.form-row input{
+  outline: none;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.04);
+  color: white;
+  font-size: 14px;
+  transition: box-shadow 160ms ease, transform 160ms ease, border-color 160ms ease;
+}
+
+.form-row input::placeholder{
+  color: rgba(255,255,255,0.35);
+}
+
+.form-row input:focus{
+  box-shadow: 0 6px 20px rgba(124,92,255,0.08);
+  border-color: rgba(124,92,255,0.7);
+  transform: translateY(-2px);
+}
+
+.auth-error{
+  background: linear-gradient(90deg, rgba(255,107,107,0.12), rgba(255,107,107,0.06));
+  color: var(--danger);
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  border: 1px solid rgba(255,107,107,0.12);
+}
+
+.form-actions{
+  display:flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.primary-btn{
+  appearance: none;
+  border: none;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  color: white;
+  box-shadow: 0 8px 30px rgba(124,92,255,0.16);
+  transition: transform 150ms ease, box-shadow 150ms ease, filter 150ms ease;
+}
+
+.primary-btn:hover{
+  transform: translateY(-3px);
+  filter: saturate(1.06) brightness(1.02);
+}
+
+.primary-btn:active{ transform: translateY(0); }
+.primary-btn[disabled]{ opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; }
+
+.link-btn{
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.85);
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 6px 8px;
+}
+
+.secondary-btn{
+  margin-top: 6px;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.85);
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+/* small helper text area for hints */
+.hint{
+  font-size: 12px;
+  color: rgba(255,255,255,0.6);
+}
+
+/* subtle floating animation for the card (slow) */
+@keyframes floaty {
+  0%{ transform: translateY(0); }
+  50%{ transform: translateY(-4px); }
+  100%{ transform: translateY(0); }
+}
+
+/* Responsive tweaks */
+@media (max-width: 480px){
+  .auth-card{ padding: 20px; border-radius: 12px; }
+  .primary-btn{ width: 100%; }
+}
+
+/* Small utility: focus-visible outlines for accessibility */
+:focus-visible{ outline: 3px solid rgba(124,92,255,0.12); outline-offset: 2px; }
+
+/* Animated small accent under the title that shifts with cursor */
+.title-accent{
+  height: 6px;
+  width: 64px;
+  border-radius: 8px;
+  margin-top: 10px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transform: translateX(calc((var(--mx,50%) - 50%) * 0.2));
+  transition: transform 260ms cubic-bezier(.2,.9,.2,1);
+}
+
+/* neat form-row hover micro-interaction */
+.form-row:hover input{ transform: translateY(-2px) scale(1.001); }
+
+/* small accessibility contrast adjustments when user prefers reduced motion */
+@media (prefers-reduced-motion: reduce){
+  .auth-card, .title-accent, .auth-card:before, .auth-card:after{ transition: none; animation: none; }
+}

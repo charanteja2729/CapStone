@@ -1,6 +1,6 @@
 // frontend/src/components/VideoProcessor.js
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Spinner from './Spinner';
 import styles from './VideoProcessor.module.css';
 
@@ -13,10 +13,38 @@ const isProbablyUrl = (value) => {
   }
 };
 
-const VideoProcessor = ({ onProcessComplete, isLoading, onSetLoading, onError }) => {
+const VideoProcessor = ({
+  onProcessComplete,
+  isLoading,
+  onSetLoading,
+  onError,
+  authToken,            // optional: pass token as prop
+  includeCredentials = false, // optional: set to true if using cookie auth
+}) => {
   const [videoUrl, setVideoUrl] = useState('');
+  const controllerRef = useRef(null);
+
+  // Abort any in-flight request when component unmounts
+  useEffect(() => {
+    return () => {
+      if (controllerRef.current) {
+        controllerRef.current.abort();
+      }
+    };
+  }, []);
 
   const safeParseJson = async (res) => {
+    // If no content or content-length is zero, return null
+    const ct = res.headers.get('content-type') || '';
+    if (res.status === 204) return null;
+    if (!ct.includes('application/json')) {
+      // still try parsing if server lied about content-type
+      try {
+        return await res.json();
+      } catch {
+        return null;
+      }
+    }
     try {
       return await res.json();
     } catch {
@@ -27,9 +55,9 @@ const VideoProcessor = ({ onProcessComplete, isLoading, onSetLoading, onError })
   const handleProcessVideo = async (e) => {
     e.preventDefault();
 
-    // local validation before showing spinner
     const raw = (videoUrl || '').trim();
     onError && onError(''); // clear previous error
+
     if (!raw) {
       onError && onError('Please paste a YouTube URL.');
       return;
@@ -38,22 +66,35 @@ const VideoProcessor = ({ onProcessComplete, isLoading, onSetLoading, onError })
       onError && onError('Please enter a valid URL (must start with http:// or https://).');
       return;
     }
-    // optional: further restrict to YouTube domains
-    // const allowed = ['www.youtube.com', 'youtube.com', 'youtu.be'];
-    // if (!allowed.includes(new URL(raw).hostname.replace('m.', ''))) { ... }
+
+    // Prepare auth header (prop wins, fall back to localStorage)
+    const token = authToken || localStorage.getItem('access_token');
+
+    // Abort previous request if still running
+    if (controllerRef.current) {
+      controllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    controllerRef.current = controller;
 
     onSetLoading && onSetLoading(true);
 
     try {
-      const res = await fetch('http://localhost:5000/api/process-video', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // include credentials if your backend relies on cookies:
-        // credentials: 'include',
-        body: JSON.stringify({ video_url: raw }),
-      });
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      // Try to parse JSON safely (server might return non-JSON on error)
+      const opts = {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ video_url: raw }),
+        signal: controller.signal,
+      };
+      if (includeCredentials) {
+        opts.credentials = 'include';
+      }
+
+      const res = await fetch('http://localhost:5000/api/process-video', opts);
+
       const parsed = await safeParseJson(res);
 
       if (!res.ok) {
@@ -61,17 +102,21 @@ const VideoProcessor = ({ onProcessComplete, isLoading, onSetLoading, onError })
         throw new Error(errMsg);
       }
 
-      // If server responded with empty body or non-JSON, handle gracefully
       if (!parsed) {
         throw new Error('Server returned an unexpected response.');
       }
 
       onProcessComplete && onProcessComplete(parsed);
     } catch (err) {
-      // err.message is user-facing; you might want to map it to friendlier text here
-      onError && onError(err.message || 'Failed to process video.');
+      if (err.name === 'AbortError') {
+        // optional: ignore or surface a cancel message
+        onError && onError('Request cancelled.');
+      } else {
+        onError && onError(err.message || 'Failed to process video.');
+      }
     } finally {
       onSetLoading && onSetLoading(false);
+      controllerRef.current = null;
     }
   };
 
