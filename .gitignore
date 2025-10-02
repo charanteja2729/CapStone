@@ -1,0 +1,12 @@
+# Python virtual environment
+backend/venv/
+backend/.env
+backend/__pycache__
+backend/en_core_web_sm-3.7.1
+.vscode/
+.idea/
+*.pyc
+*.pyo
+venv/
+dist/
+build/
