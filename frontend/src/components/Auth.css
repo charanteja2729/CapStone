@@ -18,7 +18,7 @@
 /* Ensure full-viewport centering when used on a page */
 .auth-wrapper {
   --mx: 50%;
-  --my: 50%;
+  --my: 50%; 
   min-height: 100vh;
   display: flex;
   align-items: center;
@@ -226,4 +226,51 @@
 /* small accessibility contrast adjustments when user prefers reduced motion */
 @media (prefers-reduced-motion: reduce){
   .auth-card, .title-accent, .auth-card:before, .auth-card:after{ transition: none; animation: none; }
+}
+
+/* Adding title of Website */
+/*----------------------------------------------------------*/
+
+/* Small top-left brand for Auth page (non-intrusive) */
+.auth-brand {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 2200;
+  pointer-events: auto;
+  display: inline-block;
+}
+
+.auth-brand-link {
+  display: inline-block;
+  font-weight: 700;
+  font-size: 19px;
+  color: #ffffff; /* white text for dark background */
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+  box-shadow: 0 8px 30px rgba(2,6,23,0.45);
+  transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.auth-brand-link:hover,
+.auth-brand-link:focus {
+  transform: translateY(-2px);
+  background: rgba(255,255,255,0.06);
+  box-shadow: 0 12px 36px rgba(2,6,23,0.55);
+  outline: none;
+}
+
+/* mobile tweak so brand doesn't overlap input UI */
+@media (max-width: 420px) {
+  .auth-brand {
+    top: 10px;
+    left: 10px;
+  }
+  .auth-brand-link {
+    font-size: 14px;
+    padding: 5px 8px;
+    border-radius: 8px;
+  }
 }
