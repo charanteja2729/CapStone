@@ -1,8 +1,3 @@
-# app.py (corrected & improved)
-# - Use find_one_and_update for robust, atomic updates
-# - Centralized _apply_user_update helper to ensure updates persist
-# - Keep same public API / behavior as before
-
 import os
 import traceback
 from datetime import datetime
@@ -26,8 +21,8 @@ except Exception:
 from pymongo import MongoClient, ReturnDocument
 from bson.objectid import ObjectId
 
-# local module imports (keep names as your project expects)
-from summarizer import generate_study_notes_with_api
+# local module imports
+from summarizer import generate_study_notes_with_api, get_cache_keywords
 from quiz_generator import create_quiz_from_text
 from audio_extractor import get_transcript_from_url
 
@@ -46,13 +41,13 @@ app.debug = APP_DEBUG
 # Frontend origin for CORS
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
 
-# Configure CORS for the API routes
+# Configure CORS
 CORS(app,
      resources={r"/api/*": {"origins": FRONTEND_ORIGIN}},
      supports_credentials=True,
 )
 
-# Add explicit CORS headers for safety (helps when some middleware returns early)
+# Add explicit CORS headers
 @app.after_request
 def add_cors_headers(response):
     response.headers.setdefault("Access-Control-Allow-Origin", FRONTEND_ORIGIN)
@@ -74,6 +69,9 @@ jwt = JWTManager(app)
 client = MongoClient(MONGO_URI)
 db = client[DB_NAME]
 users_col = db["users"]
+# --- [NEW] Global cache collection ---
+summary_cache_col = db["summary_cache"]
+
 
 # -------------------------
 # Helper utilities
@@ -92,11 +90,7 @@ def _safe_object_id(val: Any) -> Optional[ObjectId]:
 
 
 def _identity_from_authorization_header():
-    """Try to decode JWT identity directly from Authorization header.
-
-    This is a best-effort helper for cases where library optional helpers
-    are not available. Returns identity or None.
-    """
+    """Try to decode JWT identity directly from Authorization header."""
     auth = request.headers.get('Authorization') or request.headers.get('authorization')
     if not auth:
         return None
@@ -107,11 +101,9 @@ def _identity_from_authorization_header():
     if scheme.lower() != 'bearer' or not token:
         return None
 
-    # Try to decode token if decode_token is available
     if decode_token:
         try:
             decoded = decode_token(token)
-            # Most versions put identity in one of these keys
             for key in ('identity', 'sub', 'user_id'):
                 if key in decoded:
                     return decoded[key]
@@ -119,15 +111,11 @@ def _identity_from_authorization_header():
         except Exception:
             logger.exception("decode_token failed for Authorization header token")
             return None
-
     return None
 
 
 def _find_user_by_identity(identity: Any):
-    """Find user document given an identity which may be ObjectId string or email.
-
-    Returns user document or None.
-    """
+    """Find user document given an identity which may be ObjectId string or email."""
     if not identity:
         return None
     oid = _safe_object_id(identity)
@@ -139,12 +127,8 @@ def _find_user_by_identity(identity: Any):
 
 
 def _apply_user_update(user_id: Any, update_ops: Dict, projection: Optional[Dict] = None):
-    """Apply update to user document atomically and return the updated document (or None).
-
-    Fallbacks to update_one if find_one_and_update doesn't return a document (robustness for older drivers / configs).
-    """
+    """Apply update to user document atomically and return the updated document (or None)."""
     try:
-        # Ensure we have an ObjectId for the query if possible
         oid = _safe_object_id(user_id) or user_id
         updated = users_col.find_one_and_update(
             {'_id': oid},
@@ -154,7 +138,6 @@ def _apply_user_update(user_id: Any, update_ops: Dict, projection: Optional[Dict
         )
         if updated:
             return updated
-        # fallback: try update_one then re-fetch
         res = users_col.update_one({'_id': oid}, update_ops)
         if res.matched_count:
             return users_col.find_one({'_id': oid}, projection or {})
@@ -162,7 +145,6 @@ def _apply_user_update(user_id: Any, update_ops: Dict, projection: Optional[Dict
     except Exception:
         logger.exception('Error applying user update')
         try:
-            # final fallback: try update_one and ignore result
             oid = _safe_object_id(user_id) or user_id
             users_col.update_one({'_id': oid}, update_ops)
             return users_col.find_one({'_id': oid}, projection or {})
@@ -172,16 +154,7 @@ def _apply_user_update(user_id: Any, update_ops: Dict, projection: Optional[Dict
 
 
 def get_user_doc_or_none():
-    """
-    Robust optional JWT verification:
-      1) Try verify_jwt_in_request_optional if available / works
-      2) Try verify_jwt_in_request(optional=True) (some versions)
-      3) Try to decode token from Authorization header directly
-      4) As a last resort in DEBUG, accept dev_user_id or dev_user_email from request data for convenience
-
-    Returns user document or None.
-    """
-    # 1) Try library helpers (best effort)
+    """Robust optional JWT verification helper."""
     try:
         try:
             from flask_jwt_extended import verify_jwt_in_request_optional
@@ -202,9 +175,8 @@ def get_user_doc_or_none():
             except Exception:
                 pass
     except Exception:
-        logger.debug("verify_jwt_in_request optional attempt failed or not available")
+        logger.debug("verify_jwt_in_request optional attempt failed")
 
-    # 2) Try get_jwt_identity
     try:
         identity = get_jwt_identity()
         if identity:
@@ -214,7 +186,6 @@ def get_user_doc_or_none():
     except Exception:
         logger.debug("get_jwt_identity did not return a usable identity")
 
-    # 3) Try decoding Authorization header directly
     try:
         identity_from_header = _identity_from_authorization_header()
         if identity_from_header:
@@ -224,7 +195,6 @@ def get_user_doc_or_none():
     except Exception:
         logger.debug("token decode from header failed")
 
-    # 4) Developer convenience for local testing only
     if current_app and current_app.debug:
         try:
             body = {}
@@ -241,8 +211,76 @@ def get_user_doc_or_none():
                 return users_col.find_one({'email': dev_user_email})
         except Exception:
             logger.exception("dev override failed")
-    # nothing found
     return None
+
+
+# --- [NEW HELPER FUNCTION] ---
+def _get_or_create_summary(text: str) -> Dict[str, Any]:
+    """
+    Central function to check cache or generate new summary.
+    Returns a dictionary with the summary data and a 'cache_hit' flag.
+    """
+    if not text:
+        return {"notes": "", "title": "", "topic": "", "sub_topic": "", "keywords": [], "cache_hit": False}
+
+    try:
+        # 1. Get cache keys from the raw text
+        cache_keys = get_cache_keywords(text)
+        
+        if not cache_keys:
+            logger.warning("Could not extract cache keys from text. Skipping cache check.")
+            raise Exception("No cache keys") # Force cache miss
+
+        # 2. Check the cache
+        # We use $all to ensure all keywords are present
+        cached_doc = summary_cache_col.find_one({"keywords": {"$all": cache_keys}})
+        
+        if cached_doc:
+            logger.info(f"CACHE HIT for keywords: {cache_keys}")
+            # Return a consistent dictionary structure
+            return {
+                "notes": cached_doc.get("notes"),
+                "title": cached_doc.get("title"),
+                "topic": cached_doc.get("topic"),
+                "sub_topic": cached_doc.get("sub_topic"),
+                "keywords": cached_doc.get("keywords"),
+                "cache_hit": True
+            }
+    
+        # 3. Cache Miss: Generate new summary
+        logger.info(f"CACHE MISS for keywords: {cache_keys}. Generating new summary.")
+        res = generate_study_notes_with_api(text, chunk_size=2000, parallel=True)
+        
+        # 4. Save to cache (only if valid)
+        new_keywords = res.get("keywords")
+        new_notes = res.get("notes")
+        
+        if new_keywords and new_notes:
+            new_entry = {
+                "notes": new_notes,
+                "title": res.get("title"),
+                "topic": res.get("topic"),
+                "sub_topic": res.get("sub_topic"),
+                "keywords": new_keywords, # Use the keywords from the summary
+                "created_at": datetime.utcnow()
+            }
+            try:
+                summary_cache_col.insert_one(new_entry)
+                logger.info(f"Saved new entry to cache with keywords: {new_keywords}")
+            except Exception:
+                logger.exception("Failed to save new entry to cache")
+        else:
+            logger.warning("Generated summary missing notes or keywords. Not saving to cache.")
+
+        res['cache_hit'] = False
+        return res
+
+    except Exception as e:
+        logger.exception("Error in _get_or_create_summary. Falling back to simple generation.")
+        # Fallback: just generate without caching
+        res = generate_study_notes_with_api(text, chunk_size=2000, parallel=True)
+        res['cache_hit'] = False # Indicate it was not from cache
+        return res
 
 
 # -------------------------
@@ -254,7 +292,7 @@ def health_check():
 
 
 # -------------------------
-# Auth endpoints
+# Auth endpoints (Unchanged)
 # -------------------------
 @app.route('/api/register', methods=['POST'])
 def register():
@@ -308,7 +346,7 @@ def login():
 
 
 # -------------------------
-# Profile endpoint
+# Profile endpoint (Unchanged)
 # -------------------------
 @app.route('/api/me', methods=['GET'])
 @jwt_required()
@@ -335,7 +373,7 @@ def me():
 
 
 # -------------------------
-# Summarization endpoint
+# Summarization endpoint [REPLACED]
 # -------------------------
 @app.route('/api/summarize', methods=['POST', 'OPTIONS'])
 def summarize_text():
@@ -344,8 +382,7 @@ def summarize_text():
 
     data = request.get_json(silent=True) or {}
     text = data.get('text')
-    frontend_title = data.get('title')
-    quick = bool(data.get('quick', False))
+    frontend_title = data.get('title') # User's custom title
 
     if not text:
         return jsonify({'error': 'No text provided for summarization.'}), 400
@@ -354,42 +391,49 @@ def summarize_text():
     logger.info("summarize called — detected user: %s", (user.get('email') if user else None))
 
     try:
-        res = generate_study_notes_with_api(text, chunk_size=2000, parallel=True, quick_title_only=quick)
+        # --- [NEW CACHING LOGIC] ---
+        # This function checks cache first, or generates new if miss
+        summary_data = _get_or_create_summary(text)
+        # summary_data now contains: {notes, title, topic, sub_topic, keywords, cache_hit}
+        # --- [END NEW LOGIC] ---
 
-        notes = res.get('notes', '') if isinstance(res, dict) else (res or '')
-        title = res.get('title', '') if isinstance(res, dict) else ''
-        partials = res.get('partials', []) if isinstance(res, dict) else []
-
-        final_title = (frontend_title or '').strip() or (title or '')
+        # Use the user's title if provided, otherwise the one from the summary
+        final_title = (frontend_title or '').strip() or summary_data.get("title")
 
         if user:
-            inc_points = 1
-            update_fields = {
-                '$inc': {'summarize_count': 1, 'points': inc_points},
-                '$set': {'updated_at': datetime.utcnow()}
-            }
-            if final_title:
-                update_fields['$push'] = {
-                    'recent_topics': {
-                        '$each': [
-                            {
-                                'title': final_title,
-                                'time': datetime.utcnow()
-                            }
-                        ],
-                        '$position': 0,
-                        '$slice': 3
-                    }
+            # Only update points/recent topics if it was a NEW generation (cache miss)
+            if not summary_data.get("cache_hit"):
+                inc_points = 1
+                update_fields = {
+                    '$inc': {'summarize_count': 1, 'points': inc_points},
+                    '$set': {'updated_at': datetime.utcnow()}
                 }
+                
+                # Use the academic topic for recent_topics
+                topic_to_log = summary_data.get("topic") or final_title # Fallback
+                
+                if topic_to_log:
+                    update_fields['$push'] = {
+                        'recent_topics': {
+                            '$each': [
+                                {
+                                    'title': topic_to_log,
+                                    'time': datetime.utcnow()
+                                }
+                            ],
+                            '$position': 0,
+                            '$slice': 3
+                        }
+                    }
+                
+                updated = _apply_user_update(user['_id'], update_fields, projection={'points': 1, 'summarize_count': 1, 'recent_topics': 1})
+                logger.info('summarize (cache miss) update result present? %s', bool(updated))
+            else:
+                logger.info("summarize (cache hit) - no points awarded.")
 
-            # apply update atomically and fetch updated doc for verification
-            updated = _apply_user_update(user['_id'], update_fields, projection={'points': 1, 'summarize_count': 1, 'recent_topics': 1})
-            logger.info('summarize update result present? %s', bool(updated))
-
-        if quick:
-            return jsonify({'title': final_title, 'partials': partials})
-
-        return jsonify({'notes': notes, 'title': final_title})
+        # Return the summary data, replacing 'title' with our final_title
+        summary_data['title'] = final_title
+        return jsonify(summary_data)
 
     except Exception as e:
         logger.exception('Unexpected error in summarize')
@@ -397,7 +441,8 @@ def summarize_text():
 
 
 # -------------------------
-# Video processing endpoint
+# Video processing endpoint [REPLACED]
+# -------------------------
 @app.route('/api/process-video', methods=['POST', 'OPTIONS'])
 def process_video():
     if request.method == 'OPTIONS':
@@ -405,12 +450,10 @@ def process_video():
 
     data = request.get_json(silent=True) or {}
     video_url = (data.get('video_url') or "").strip()
-    quick = bool(data.get('quick', False))
 
     if not video_url:
         return jsonify({'error': 'Video URL is required.'}), 400
 
-    # Basic URL sanity check (you can tighten this to only allow youtube domains)
     if not (video_url.startswith('http://') or video_url.startswith('https://')):
         return jsonify({'error': 'Invalid video URL.'}), 400
 
@@ -418,14 +461,11 @@ def process_video():
     logger.info("process-video called — detected user: %s", (user.get('email') if user else None))
 
     try:
-        # get_transcript_from_url may return (transcript, error) or just transcript
+        # 1. Get Transcript
         result = get_transcript_from_url(video_url)
-
-        # Normalize result to (transcript, extractor_title, error)
         transcript = None
         extractor_title = None
         error = None
-
         if isinstance(result, (tuple, list)):
             if len(result) == 2:
                 transcript, error = result
@@ -435,75 +475,76 @@ def process_video():
                 transcript = result[0]
         else:
             transcript = result
-
-        # If gemini/download returned an error, surface a friendly message
         if error:
             logger.warning("process-video: transcript extraction failed for url=%s error=%s", video_url, error)
             return jsonify({'error': 'Failed to extract transcript from the provided video.'}), 500
-
-        # Ensure we actually have transcript content
         if not transcript or not isinstance(transcript, str) or not transcript.strip():
             logger.warning("process-video: empty transcript for url=%s", video_url)
             return jsonify({'error': 'Transcript is empty or unavailable for this video.'}), 500
 
-        # Generate notes & title
-        res = generate_study_notes_with_api(transcript, chunk_size=2000, parallel=True, quick_title_only=quick)
-        notes = res.get('notes', '') if isinstance(res, dict) else (res or '')
-        title = res.get('title', '') if isinstance(res, dict) else ''
-        partials = res.get('partials', []) if isinstance(res, dict) else []
+        # --- [NEW CACHING LOGIC] ---
+        # 2. Get or Create Summary from transcript
+        summary_data = _get_or_create_summary(transcript)
+        # --- [END NEW LOGIC] ---
 
-        final_title = (extractor_title or '').strip() or (title or '')
+        # Use video title first, then AI title
+        final_title = (extractor_title or '').strip() or summary_data.get("title")
 
-        # Create quiz (best-effort, non-blocking to the response logic)
-        try:
-            quiz = create_quiz_from_text(transcript)
-        except Exception:
-            logger.exception('create_quiz_from_text failed for url=%s', video_url)
-            quiz = []
+        # 3. Create quiz (from the cached or new notes)
+        # Per your request, we are NO LONGER auto-generating the quiz.
+        # This block is removed.
+        # quiz = []
 
-        # Update user record (if any)
+        # 4. Update user record (if any)
         if user:
-            inc_points = 2
-            update_fields = {
-                '$inc': {'summarize_count': 1, 'points': inc_points},
-                '$set': {'updated_at': datetime.utcnow()}
-            }
-            if final_title:
-                update_fields['$push'] = {
-                    'recent_topics': {
-                        '$each': [
-                            {
-                                'title': final_title,
-                                'time': datetime.utcnow()
-                            }
-                        ],
-                        '$position': 0,
-                        '$slice': 3
-                    }
+            # Only update points/recent topics if it was a NEW generation (cache miss)
+            if not summary_data.get("cache_hit"):
+                inc_points = 1 # Your request from last time
+                update_fields = {
+                    '$inc': {'summarize_count': 1, 'points': inc_points},
+                    '$set': {'updated_at': datetime.utcnow()}
                 }
+                
+                # Use academic topic for recent_topics
+                topic_to_log = summary_data.get("topic") or final_title # Fallback
 
-            updated = _apply_user_update(user['_id'], update_fields, projection={'points': 1, 'summarize_count': 1, 'recent_topics': 1})
-            logger.info('process-video update result present? %s', bool(updated))
+                if topic_to_log:
+                    update_fields['$push'] = {
+                        'recent_topics': {
+                            '$each': [
+                                {
+                                    'title': topic_to_log,
+                                    'time': datetime.utcnow()
+                                }
+                            ],
+                            '$position': 0,
+                            '$slice': 3
+                        }
+                    }
+                
+                updated = _apply_user_update(user['_id'], update_fields, projection={'points': 1, 'summarize_count': 1, 'recent_topics': 1})
+                logger.info('process-video (cache miss) update result present? %s', bool(updated))
+            else:
+                logger.info("process-video (cache hit) - no points awarded.")
 
-        # Return either quick or full response
-        if quick:
-            return jsonify({'title': final_title, 'partials': partials, 'quiz': quiz})
-
-        return jsonify({
+        # 5. Return all data
+        # We'll merge the summary_data with the other parts
+        response_data = {
+            **summary_data,
             'transcript': transcript,
-            'notes': notes,
-            'title': final_title,
-            'quiz': quiz
-        })
+            'title': final_title, # Override with our combined title
+            # 'quiz': quiz # This is removed per your request
+        }
+        
+        return jsonify(response_data)
 
     except Exception:
-        # Log detailed exception server-side but return a generic message to clients
         logger.exception('Unexpected error in process-video for url=%s', video_url)
         return jsonify({'error': 'An internal error occurred while processing the video.'}), 500
 
 
 # -------------------------
-# Generate quiz endpoint
+# Generate quiz endpoint [MODIFIED]
 # -------------------------
 @app.route('/api/generate-quiz', methods=['POST', 'OPTIONS'])
 def generate_quiz():
@@ -525,14 +566,9 @@ def generate_quiz():
 
     try:
         quiz = create_quiz_from_text(text, num_questions=num_questions)
-
-        if user:
-            update_fields = {
-                '$inc': {'points': 1},
-                '$set': {'updated_at': datetime.utcnow()}
-            }
-            updated = _apply_user_update(user['_id'], update_fields, projection={'points': 1})
-            logger.info('generate-quiz update result present? %s', bool(updated))
+        
+        # Per your request, no points for generating a quiz.
+        # The if user: block that awarded points has been removed.
 
         return jsonify({'quiz': quiz})
 
@@ -542,15 +578,15 @@ def generate_quiz():
 
 
 # -------------------------
-# Submit quiz results endpoint
+# Submit quiz results endpoint [MODIFIED]
 # -------------------------
 @app.route('/api/submit-quiz', methods=['POST'])
 @jwt_required()
 def submit_quiz():
-    identity = get_jwt_identity()
-    user = _find_user_by_identity(identity)
-    if not user:
-        return jsonify({'error': 'User not found'}), 404
+    # --- MODIFIED ---
+    # Per your request, this function is now "read-only".
+    # It calculates the score but does NOT contact the database.
+    # --- END MODIFICATION ---
 
     data = request.get_json(silent=True) or {}
     quiz = data.get('quiz') or []
@@ -566,9 +602,13 @@ def submit_quiz():
     for q, user_ans in zip(quiz, answers):
         correct_ans = q.get('correct_answer')
         question_text = q.get('question') or q.get('prompt') or ''
+        
         if correct_ans is None:
             continue
+            
         graded_total += 1
+        
+        # Check answer
         if str(user_ans).strip().lower() == str(correct_ans).strip().lower():
             correct += 1
         else:
@@ -582,102 +622,18 @@ def submit_quiz():
     if graded_total == 0:
         return jsonify({'error': 'No gradable questions found in quiz.'}), 400
 
+    # We still calculate points_awarded to show the user in the alert
+    # We just DON'T save them to the database
     points_awarded = correct * 10
 
-    update_ops = {
-        '$inc': {'points': points_awarded},
-        '$set': {'updated_at': datetime.utcnow()}
-    }
+    # --- ALL DATABASE UPDATE LOGIC IS REMOVED ---
 
-    push_map = {}
-    MAX_INCORRECT_KEEP = 200
-
-    # DO NOT add individual incorrect questions to DB by default.
-    low_score = (correct / graded_total) < 0.5
-
-    topic_name = ''
-    topic_added = False
-
-    if low_score:
-        # Prefer explicit topic provided in request, otherwise try to derive from quiz
-        topic_name = (data.get('topic') or data.get('title') or '').strip()
-        if not topic_name and isinstance(quiz, list) and len(quiz) > 0:
-            first = quiz[0]
-            topic_name = (first.get('topic') or first.get('title') or first.get('prompt') or '').strip()
-
-        if topic_name:
-            topic_entry = {
-                'question': f'Topic: {topic_name}',
-                'given': '',
-                'correct': '',
-                'time': datetime.utcnow()
-            }
-            push_map['incorrect_answers'] = {'$each': [topic_entry], '$slice': -MAX_INCORRECT_KEEP}
-
-            recent_topic_push = {
-                'title': topic_name,
-                'time': datetime.utcnow()
-            }
-            push_map['recent_topics'] = {
-                '$each': [recent_topic_push],
-                '$position': 0,
-                '$slice': 3
-            }
-
-    if push_map:
-        update_ops['$push'] = push_map
-
-    # Log what we're about to do so we can debug why DB didn't change
-    try:
-        logger.info(
-            "submit-quiz: user_id=%s graded_total=%d correct=%d low_score=%s topic_name=%s update_ops=%s",
-            str(user.get('_id')), graded_total, correct, low_score, topic_name, update_ops
-        )
-    except Exception:
-        logger.debug("submit-quiz: failed to log update details")
-
-    # Use centralized helper for robust update + fallback behavior
-    try:
-        updated = _apply_user_update(user['_id'], update_ops, projection={'points': 1, 'recent_topics': 1, 'incorrect_answers': 1})
-        if not updated:
-            logger.warning('submit-quiz: update returned no document for _id=%s', user['_id'])
-            # try one more raw attempt to surface errors in logs
-            try:
-                users_col.update_one({'_id': user['_id']}, update_ops)
-                updated = users_col.find_one({'_id': user['_id']}, {'points': 1, 'recent_topics': 1, 'incorrect_answers': 1})
-            except Exception:
-                logger.exception('submit-quiz: second attempt update_one failed')
-                return jsonify({'error': 'Failed to update user results.'}), 500
-
-    except Exception:
-        logger.exception('Error updating user during submit-quiz via helper')
-        return jsonify({'error': 'Failed to update user results.'}), 500
-
-    # Check if topic was actually added (defensive)
-    try:
-        incorrect_answers = updated.get('incorrect_answers') or []
-        recent_topics = updated.get('recent_topics') or []
-        if topic_name:
-            # presence test — we expect at least one element whose 'question' contains the topic string
-            for item in incorrect_answers[-5:]:
-                qtext = (item.get('question') or '') if isinstance(item, dict) else ''
-                if topic_name in qtext:
-                    topic_added = True
-                    break
-        logger.info("submit-quiz: topic_added=%s incorrect_count=%d recent_topics_count=%d", topic_added, len(incorrect_answers), len(recent_topics))
-    except Exception:
-        logger.exception("submit-quiz: error while verifying updated document")
-
+    # Return a simple response for the frontend alert
     resp = {
         'total': graded_total,
         'correct': correct,
         'points_awarded': points_awarded,
-        'points': updated.get('points', None),
-        'recent_topics': (updated.get('recent_topics') or [])[:3],
         'incorrect_preview': incorrect_list[-10:],
-        # helpful debugging fields (remove in prod if you like)
-        'topic_sent': topic_name,
-        'topic_added': topic_added
     }
 
     return jsonify(resp)

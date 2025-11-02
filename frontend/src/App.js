@@ -262,6 +262,19 @@ function Dashboard({ user, setUser }) {
 
   const handleVideoProcessComplete = async (data) => {
     if (!data) return;
+
+    // --- ADD THIS LOGGING ---
+    console.log("--- DEBUG: Data from /api/process-video ---");
+    console.log("Received title:", data.title);
+    if (data.quiz && data.quiz.length > 0) {
+      console.log("Received quiz[0].topic:", data.quiz[0].topic);
+    } else {
+      console.log("No quiz data received.");
+    }
+    console.log("-------------------------------------------");
+    // --- END OF LOGGING ---
+
+    if (data.notes) setGeneratedNotes(data.notes);
     if (data.notes) setGeneratedNotes(data.notes);
     if (data.quiz) setQuiz(data.quiz);
     if (data.transcript && !directText) {
@@ -289,8 +302,9 @@ function Dashboard({ user, setUser }) {
 
     try {
       const topicToSend =
-        lastTitle ||
-        (Array.isArray(quizPayload) && quizPayload.length > 0 ? quizPayload[0].title : '') ||
+        // This is the new, correct logic
+        (Array.isArray(quizPayload) && quizPayload.length > 0 ? quizPayload[0].topic : null) || // <-- 1. Prioritize the topic from the quiz
+        lastTitle || // <-- 2. Fallback to the video title
         '';
 
       const res = await fetch(`${API_BASE}/api/submit-quiz`, {

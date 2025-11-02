@@ -1,24 +1,22 @@
-# ====================================================================
-# File: python_api/summarizer.py (improved)
-# - safer when GEMINI_API_KEY missing (no exception raised)
-# - better debug logging (chunks, partial counts, errors)
-# - clearer ThreadPoolExecutor variable name
-# ====================================================================
-
-import google.generativeai as genai
-from dotenv import load_dotenv
 import os
+import re
+import json
+import logging
 import traceback
 import concurrent.futures
-import re
-import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
+from dotenv import load_dotenv
+import google.generativeai as genai
 
-# --- Setup logging ---
+# =========================
+# Setup Logging
+# =========================
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Initialize API ---
+# =========================
+# Initialize Gemini API
+# =========================
 load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
 DEFAULT_MODEL = "gemini-2.5-flash"
@@ -26,37 +24,84 @@ DEFAULT_MODEL = "gemini-2.5-flash"
 if API_KEY:
     try:
         genai.configure(api_key=API_KEY)
+        logger.info("Gemini API configured successfully.")
     except Exception:
         logger.exception("Error configuring genai with provided API key.")
 else:
-    logger.warning("GEMINI_API_KEY not found in .env file. Summarizer will work in a no-op/fallback mode.")
+    logger.warning("GEMINI_API_KEY not found. Summarizer will work in fallback mode.")
 
 
-# ------------------------
-# Low-level Gemini call
-# ------------------------
-def _call_gemini(prompt: str, model: str = DEFAULT_MODEL) -> str:
+# =========================
+# Low-Level Gemini Call
+# =========================
+def _call_gemini(prompt: str, model: str = DEFAULT_MODEL, is_json: bool = False) -> str:
     """Call Gemini API and return text result or empty string on failure."""
     if not API_KEY:
-        # No API key — return empty string (caller will treat as a failed partial)
         logger.debug("_call_gemini: no API key configured; skipping model call.")
         return ""
 
     try:
-        m = genai.GenerativeModel(model)
-        resp = m.generate_content(prompt)
-        text = resp.text if resp and getattr(resp, "text", None) else ""
+        model_instance = genai.GenerativeModel(model)
+        generation_config = {"response_mime_type": "application/json"} if is_json else {}
+        response = model_instance.generate_content(prompt, generation_config=generation_config)
+        text = response.text if response and getattr(response, "text", None) else ""
         return text or ""
     except Exception:
         logger.exception("_call_gemini failed")
         return ""
 
 
-# ------------------------
-# Chunk summarizer (parallel)
-# ------------------------
+# =========================
+# Extract Keywords (for Cache Matching)
+# =========================
+def get_cache_keywords(text: str, model: str = DEFAULT_MODEL) -> List[str]:
+    """
+    Extracts 5 most important keywords from text for caching.
+    Returns a sorted lowercase list of keywords.
+    """
+    if not text:
+        return []
+
+    short_text = (text[:1000] + '...' + text[-1000:]) if len(text) > 2000 else text
+
+    prompt = f"""
+You are a text analysis engine. Extract the 5 most important, specific, and defining
+keywords from the following text.
+
+Return ONLY a JSON list of lowercase strings.
+
+Example:
+["python", "data structures", "dictionaries", "hash maps", "time complexity"]
+
+[Text]
+{short_text}
+
+[JSON List]
+"""
+
+    try:
+        response_str = _call_gemini(prompt, model="gemini-2.5-flash", is_json=True)
+        if not response_str:
+            return []
+
+        # Extract JSON from Markdown if needed
+        json_match = re.search(r'```json\s*(\[.*?\])\s*```', response_str, re.DOTALL | re.IGNORECASE)
+        json_str = json_match.group(1) if json_match else response_str.strip()
+
+        keywords = json.loads(json_str)
+        if isinstance(keywords, list):
+            return sorted([str(k).lower() for k in keywords if k])
+        return []
+    except Exception:
+        logger.exception("Failed to get cache keywords")
+        return []
+
+
+# =========================
+# Chunk Summarizer
+# =========================
 def _summarize_chunk(args):
-    # args is a tuple (text_chunk, model)
+    """Summarize one chunk of text."""
     text_chunk, model = args
     prompt = f"""
 You are an expert academic tutor. Summarize the following chunk into concise,
@@ -68,81 +113,117 @@ exam-focused study points in Markdown. Use short bullet points and keep it tight
     return _call_gemini(prompt, model=model)
 
 
-# ------------------------
-# Fast title extraction from merged partials
-# ------------------------
-def _extract_title_from_partials(partials_merged: str, model: str = DEFAULT_MODEL) -> str:
-    if not partials_merged:
-        return ""
-    prompt = f"""
-You are a helpful assistant. Read the below merged partial study notes and supply a
-concise title (3-8 words) that best captures the main topic. Output only the title
-on a single line (no markdown, no bullets, no extra text).
+# =========================
+# Merge and Refine Summaries
+# =========================
+def _refine_and_merge_partials(partials: List[str], model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    """
+    Merges multiple chunk summaries and extracts structured metadata:
+    topic, sub_topic, title, and keywords.
+    """
+    if not partials:
+        return {"notes": "", "topic": "", "sub_topic": "", "title": "", "keywords": []}
 
-[Merged partial summaries]
-{partials_merged}
-
-Title:
-"""
-    raw = _call_gemini(prompt, model=model)
-    if not raw:
-        return ""
-
-    line = raw.splitlines()[0].strip() if raw.splitlines() else raw.strip()
-    line = re.sub(r'^[\"\']+|[\"\']+$', '', line)  # strip quotes
-    line = re.sub(r'^[\-\–\—\d\.\)\s]+', '', line)  # strip leading bullets/nums
-    line = re.sub(r'\s+', ' ', line)
-    words = line.split()
-    if len(words) > 8:
-        line = ' '.join(words[:8])
-    return line.strip()
-
-
-# ------------------------
-# Final refinement + merge (uses partials as input)
-# ------------------------
-def _refine_and_merge_partials(partials: List[str], model: str = DEFAULT_MODEL) -> str:
     merged_text = "\n\n".join(partials)
-    prompt = f"""
-You are an expert academic tutor. Merge the following partial summaries into
-one clean, non-redundant, exam-focused study note in Markdown.
 
-Requirements:
-- Remove overlaps/redundancies.
-- Organize into clear sections and headings as needed.
-- Keep it concise but exam-ready.
+    prompt = f"""
+You are an expert academic tutor. Analyze the following partial summaries and
+generate a clean, non-redundant, exam-focused study note in Markdown.
+
+After the notes, provide a structured JSON block with:
+- topic: The broad, high-level subject (e.g., "Dynamic Programming").
+- sub_topic: The specific concept (e.g., "Tabulation").
+- title: A concise title (3-8 words).
+- keywords: A list of 5-7 specific, lowercase keywords for cache indexing.
 
 [Partial Summaries]
 {merged_text}
+
+[Study Notes]
+(Your merged Markdown notes go here, starting with a # Title)
+
+[JSON]
+```json
+{{
+  "topic": "Main academic subject",
+  "sub_topic": "Specific concept within the topic",
+  "title": "A concise title for this specific summary (3-8 words)",
+  "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"]
+}}
 """
-    return _call_gemini(prompt, model=model) or merged_text
+    raw_response = _call_gemini(prompt, model=model)
+    if not raw_response:
+        return {
+            "notes": merged_text,
+            "topic": "",
+            "sub_topic": "",
+            "title": "Summary",
+            "keywords": []
+        }
+
+    notes, topic, sub_topic, title, keywords = raw_response, "", "", "", []
+
+    try:
+        json_match = re.search(r'json\s*(\{.*?\})\s*', raw_response, re.DOTALL | re.IGNORECASE)
+        if json_match:
+            json_str = json_match.group(1)
+            notes = raw_response[:json_match.start()].strip()
+            data = json.loads(json_str)
+
+            topic = data.get("topic", "").strip()
+            sub_topic = data.get("sub_topic", "").strip()
+            title = data.get("title", "").strip()
+
+            keywords_list = data.get("keywords", [])
+            if isinstance(keywords_list, list):
+                keywords = sorted([str(k).lower() for k in keywords_list if k])
+        else:
+            title_match = re.search(r'^#\s*(.*)', notes, re.MULTILINE)
+            if title_match:
+                title = title_match.group(1).strip()
+
+    except Exception:
+        logger.exception("Failed to parse JSON from Gemini response")
+
+    return {
+        "notes": notes,
+        "topic": topic,
+        "sub_topic": sub_topic,
+        "title": title,
+        "keywords": keywords
+    }
 
 
-# ------------------------
-# Public function
-# ------------------------
+# =========================
+# Public Function: Main Entry
+# =========================
 def generate_study_notes_with_api(
     text: str,
     chunk_size: int = 2000,
     parallel: bool = True,
-    quick_title_only: bool = False,
     model: str = DEFAULT_MODEL
 ) -> Dict[str, Any]:
     """
-    Returns dict: { 'notes': <markdown str> , 'title': <short str>, 'partials': [ ... ] }
-
-    This function will NOT raise if no API key is present; instead it returns
-    an empty/fallback result so callers can continue (and update DB).
+    Generates summarized study notes for a long text input.
+    Returns:
+    {
+      "notes": ...,
+      "title": ...,
+      "topic": ...,
+      "sub_topic": ...,
+      "keywords": [...],
+      "partials": [...]
+    }
     """
     try:
         if not text or not isinstance(text, str):
-            return {"notes": "", "title": "", "partials": []}
+            return {"notes": "", "title": "", "topic": "", "sub_topic": "", "keywords": [], "partials": []}
 
-        # split into chunks by simple char windows
-        chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
-        logger.debug("generate_study_notes_with_api: text length=%d chunk_size=%d chunks=%d", len(text), chunk_size, len(chunks))
+        # Split text into manageable chunks
+        chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
+        logger.debug(f"Text length={len(text)} | Chunk size={chunk_size} | Chunks={len(chunks)}")
 
-        # Summarize chunks (parallel or sequential)
+        # Summarize chunks
         partials: List[str] = []
         if parallel and len(chunks) > 1:
             try:
@@ -152,51 +233,30 @@ def generate_study_notes_with_api(
                     results = list(executor.map(_summarize_chunk, args_iter))
                     partials.extend(results)
             except Exception:
-                logger.exception("Parallel summarization failed, falling back to sequential")
+                logger.exception("Parallel summarization failed, falling back to sequential.")
                 for c in chunks:
                     partials.append(_summarize_chunk((c, model)))
         else:
             for c in chunks:
                 partials.append(_summarize_chunk((c, model)))
 
-        logger.debug("generate_study_notes_with_api: got %d partials (including empty/error ones)", len(partials))
-
-        # Filter out empty or error partials
-        filtered_partials = [p for p in partials if p and isinstance(p, str) and not p.strip() == ""]
-        logger.debug("generate_study_notes_with_api: filtered partials count=%d", len(filtered_partials))
-
-        # Build merged partials string
-        merged_partials = "\n\n".join(filtered_partials).strip()
-
-        # Fast single call to extract title from merged partials
-        title = ""
-        try:
-            if merged_partials:
-                title = _extract_title_from_partials(merged_partials, model=model)
-                logger.debug("generate_study_notes_with_api: extracted title='%s'", title)
-        except Exception:
-            logger.exception("Title extraction failed")
-            title = ""
-
-        if quick_title_only:
-            return {"notes": "", "title": title, "partials": filtered_partials}
-
-        # If no filtered partials (all failed) we fall back to merged raw partials or empty string
+        filtered_partials = [p for p in partials if p and isinstance(p, str) and p.strip()]
         if not filtered_partials:
             fallback_text = "\n\n".join([p for p in partials if p and isinstance(p, str)]) or ""
-            return {"notes": fallback_text, "title": title or "", "partials": partials}
+            return {"notes": fallback_text, "title": "", "topic": "", "sub_topic": "", "keywords": [], "partials": partials}
 
-        # Otherwise, produce final refined notes (single additional call)
-        final_notes = ""
-        try:
-            final_notes = _refine_and_merge_partials(filtered_partials, model=model)
-        except Exception:
-            logger.exception("Refinement of partials failed, using merged partials as fallback")
-            final_notes = merged_partials
+        # Refine and merge all summaries
+        result_data = _refine_and_merge_partials(filtered_partials, model=model)
 
-        return {"notes": final_notes or merged_partials, "title": title or "", "partials": filtered_partials}
+        return {
+            "notes": result_data.get("notes"),
+            "title": result_data.get("title"),
+            "topic": result_data.get("topic"),
+            "sub_topic": result_data.get("sub_topic"),
+            "keywords": result_data.get("keywords"),
+            "partials": filtered_partials
+        }
 
     except Exception:
         logger.exception("generate_study_notes_with_api: unexpected error")
-        # Ensure we never raise to the caller — return a safe empty structure
-        return {"notes": "", "title": "", "partials": []}
+        return {"notes": "", "title": "", "topic": "", "sub_topic": "", "keywords": [], "partials": []}

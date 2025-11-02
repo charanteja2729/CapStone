@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import styles from './Quiz.module.css'; // <-- Import CSS Module
 
-const Quiz = ({ quizData }) => {
+const Quiz = ({ quizData, onSubmit }) => {
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [userAnswers, setUserAnswers] = useState({});
     const [showResults, setShowResults] = useState(false);
@@ -24,6 +24,14 @@ const Quiz = ({ quizData }) => {
     };
     
     const handleSubmitQuiz = () => {
+    
+        const answersArray = quizData.map((question, index) => {
+            return userAnswers[index] || null; 
+        });
+
+        if (onSubmit) {
+            onSubmit(answersArray); 
+        }
         setShowResults(true);
     };
 

@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Spinner from './Spinner';
 import styles from './VideoProcessor.module.css';
+import { getAuthHeaders } from '../utils/auth';
 
 const isProbablyUrl = (value) => {
   try {
@@ -80,12 +81,9 @@ const VideoProcessor = ({
     onSetLoading && onSetLoading(true);
 
     try {
-      const headers = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
       const opts = {
         method: 'POST',
-        headers,
+        headers: getAuthHeaders(true), // <-- This automatically adds Content-Type and Authorization
         body: JSON.stringify({ video_url: raw }),
         signal: controller.signal,
       };
