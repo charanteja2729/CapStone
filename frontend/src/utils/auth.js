@@ -1,7 +1,9 @@
 // simple utils for token + headers
+const TOKEN_KEY = 'access_token';
+
 export function getToken() {
   try {
-    return localStorage.getItem('token');
+    return localStorage.getItem(TOKEN_KEY);
   } catch (e) {
     console.warn('getToken error', e);
     return null;
@@ -23,7 +25,7 @@ export function getAuthHeaders(isJson = false) {
 
 export function removeToken() {
   try {
-    localStorage.removeItem('token');
+    localStorage.removeItem(TOKEN_KEY);
   } catch (e) {
     console.warn('removeToken error', e);
   }

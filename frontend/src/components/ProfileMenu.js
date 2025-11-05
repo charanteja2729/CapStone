@@ -1,28 +1,25 @@
-// frontend/src/components/ProfileMenu.js
+// src/components/ProfileMenu.js
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import PropTypes from "prop-types";
 import { getToken, getAuthHeaders, removeToken } from "../utils/auth";
 import "./ProfileMenu.css";
 
-const CHECK_INTERVAL_MS = 30 * 1000; // check every 30s
+const CHECK_INTERVAL_MS = 30 * 1000;
 
-// helper: check if JWT token is expired (returns true if expired or invalid)
 function isTokenExpired(token) {
   if (!token) return true;
   try {
     const parts = token.split(".");
     if (parts.length < 2) return true;
-    // base64url -> base64
     let payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
     while (payload.length % 4) payload += "=";
     const decoded = atob(payload);
     const obj = JSON.parse(decoded);
-    if (!obj.exp) return false; // no exp claim -> consider valid
+    if (!obj.exp) return false;
     const now = Math.floor(Date.now() / 1000);
     return obj.exp <= now;
-  } catch (err) {
-    // invalid token format
+  } catch {
     return true;
   }
 }
@@ -35,37 +32,26 @@ export default function ProfileMenu({ user, apiBase = "", onLogout }) {
   const menuRef = useRef(null);
   const navigate = useNavigate();
 
-  // sync incoming user prop (keeps component reactive when parent updates)
-  useEffect(() => {
-    setProfile(user || null);
-  }, [user]);
+  useEffect(() => { setProfile(user || null); }, [user]);
 
-  // close dropdown on outside click
   useEffect(() => {
     function onDocClick(e) {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setOpen(false);
-      }
+      if (menuRef.current && !menuRef.current.contains(e.target)) setOpen(false);
     }
     document.addEventListener("click", onDocClick);
     return () => document.removeEventListener("click", onDocClick);
   }, []);
 
-  // fetch profile from server (uses token header)
   async function fetchProfile() {
     const token = getToken();
-    if (!token) {
-      setProfile(null);
-      return null;
-    }
+    if (!token) { setProfile(null); return null; }
     try {
       setLoading(true);
       const res = await fetch(`${apiBase || ""}/api/me`, {
         method: "GET",
-        headers: getAuthHeaders(), // expects Authorization header if token present
+        headers: getAuthHeaders(),
       });
       if (!res.ok) {
-        // if unauthorized, treat as logged out
         if (res.status === 401 || res.status === 403) {
           doLogout();
           return null;
@@ -77,7 +63,7 @@ export default function ProfileMenu({ user, apiBase = "", onLogout }) {
       const data = await res.json().catch(() => ({}));
       setProfile(data.user || null);
       return data.user || null;
-    } catch (e) {
+    } catch {
       setErr("Network error while fetching profile");
       return null;
     } finally {
@@ -85,58 +71,27 @@ export default function ProfileMenu({ user, apiBase = "", onLogout }) {
     }
   }
 
-  // logout helper that ensures token is removed and parent is notified
   function doLogout() {
-    try {
-      removeToken();
-    } catch (e) {
-      // ignore
-    }
+    try { removeToken(); } catch {}
     setProfile(null);
     setOpen(false);
     if (typeof onLogout === "function") {
-      try {
-        onLogout();
-      } catch (err) {
-        // parent handler may navigate/remove state
-      }
+      try { onLogout(); } catch {}
     }
-    // ensure UI goes back to login route
-    try {
-      navigate("/", { replace: true });
-    } catch (e) {
-      // ignore navigation errors in some integration contexts
-    }
+    try { navigate("/", { replace: true }); } catch {}
   }
 
-  // check token periodically and on focus, storage events
   useEffect(() => {
     function checkAndLogoutIfExpired() {
       const token = getToken();
-      if (!token || isTokenExpired(token)) {
-        // token missing or expired -> force logout
-        doLogout();
-      }
+      if (!token || isTokenExpired(token)) doLogout();
     }
-
-    // check now on mount
     checkAndLogoutIfExpired();
-
-    // interval check
     const id = setInterval(checkAndLogoutIfExpired, CHECK_INTERVAL_MS);
-
-    // page visibility / focus
     const onFocus = () => checkAndLogoutIfExpired();
     window.addEventListener("focus", onFocus);
     window.addEventListener("visibilitychange", onFocus);
-
-    // detect cross-tab token removal/changes
-    const onStorage = (e) => {
-      if (e.key === "token") {
-        // if token removed in other tab or changed, validate now
-        checkAndLogoutIfExpired();
-      }
-    };
+    const onStorage = (e) => { if (e.key === "token") checkAndLogoutIfExpired(); };
     window.addEventListener("storage", onStorage);
 
     return () => {
@@ -145,24 +100,17 @@ export default function ProfileMenu({ user, apiBase = "", onLogout }) {
       window.removeEventListener("visibilitychange", onFocus);
       window.removeEventListener("storage", onStorage);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // convenience display helpers
   const displayName = (profile && (profile.name || profile.email)) || "Guest";
   const displayPoints = (profile && (profile.points ?? 0)) || 0;
   const recentTopics = (profile && profile.recent_topics) || [];
 
-  // UI render
   return (
     <div className="profile-menu" ref={menuRef} style={{ position: "relative", display: "inline-block" }}>
       <button
         type="button"
-        onClick={() => {
-          setOpen((v) => !v);
-          // refresh profile when opening to show latest points
-          if (!open) fetchProfile();
-        }}
+        onClick={() => { setOpen((v) => !v); if (!open) fetchProfile(); }}
         aria-haspopup="true"
         aria-expanded={open}
         className="profile-button"
@@ -178,20 +126,10 @@ export default function ProfileMenu({ user, apiBase = "", onLogout }) {
         }}
         title={displayName}
       >
-        <div
-          className="avatar"
-          style={{
-            width: 34,
-            height: 34,
-            borderRadius: 999,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "#2b6cb0",
-            color: "white",
-            fontWeight: 600,
-          }}
-        >
+        <div className="avatar" style={{
+          width: 34, height: 34, borderRadius: 999, display: "flex", alignItems: "center",
+          justifyContent: "center", background: "#2b6cb0", color: "white", fontWeight: 600,
+        }}>
           {(displayName && displayName[0]?.toUpperCase()) || "U"}
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", minWidth: 120 }}>
@@ -210,7 +148,7 @@ export default function ProfileMenu({ user, apiBase = "", onLogout }) {
             position: "absolute",
             right: 0,
             top: "calc(100% + 8px)",
-            minWidth: 260,
+            minWidth: 280,
             background: "white",
             boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
             borderRadius: 8,
@@ -219,20 +157,10 @@ export default function ProfileMenu({ user, apiBase = "", onLogout }) {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-            <div
-              style={{
-                width: 46,
-                height: 46,
-                borderRadius: 999,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                background: "#2b6cb0",
-                color: "white",
-                fontWeight: 700,
-                fontSize: 18,
-              }}
-            >
+            <div style={{
+              width: 46, height: 46, borderRadius: 999, display: "flex", alignItems: "center",
+              justifyContent: "center", background: "#2b6cb0", color: "white", fontWeight: 700, fontSize: 18,
+            }}>
               {displayName[0]?.toUpperCase() || "U"}
             </div>
             <div style={{ display: "flex", flexDirection: "column" }}>
@@ -264,49 +192,41 @@ export default function ProfileMenu({ user, apiBase = "", onLogout }) {
             )}
           </div>
 
+          <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+            <button
+              type="button"
+              onClick={() => navigate('/app/my-summaries')}
+              style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.06)', background: '#fff', cursor: 'pointer' }}
+            >
+              My Notes
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/app/weak-areas')}
+              style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.06)', background: '#fff', cursor: 'pointer' }}
+            >
+              Weak Areas
+            </button>
+          </div>
+
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             <button
               type="button"
-              onClick={() => {
-                // refresh profile immediately
-                fetchProfile();
-              }}
-              style={{
-                flex: 1,
-                padding: "8px 10px",
-                borderRadius: 8,
-                border: "1px solid rgba(0,0,0,0.06)",
-                background: "#fff",
-                cursor: "pointer",
-              }}
+              onClick={() => fetchProfile()}
+              style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.06)", background: "#fff", cursor: "pointer" }}
             >
               Refresh
             </button>
-
             <button
               type="button"
-              onClick={() => {
-                doLogout();
-              }}
-              style={{
-                flex: 1,
-                padding: "8px 10px",
-                borderRadius: 8,
-                border: "none",
-                background: "#ef4444",
-                color: "white",
-                cursor: "pointer",
-              }}
+              onClick={() => doLogout()}
+              style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "none", background: "#ef4444", color: "white", cursor: "pointer" }}
             >
               Logout
             </button>
           </div>
 
-          {err && (
-            <div style={{ marginTop: 10, color: "#b91c1c", fontSize: 13 }}>
-              {err}
-            </div>
-          )}
+          {err && <div style={{ marginTop: 10, color: "#b91c1c", fontSize: 13 }}>{err}</div>}
         </div>
       )}
     </div>

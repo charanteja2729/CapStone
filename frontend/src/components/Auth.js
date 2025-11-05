@@ -6,8 +6,8 @@ import './Auth.css';
 const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5000';
 
 export default function Auth({ onLogin }) {
-  const wrapperRef = useRef(null); // listen here
-  const cardRef = useRef(null);    // compute positions relative to this
+  const wrapperRef = useRef(null);
+  const cardRef = useRef(null);
 
   const [isLoginMode, setIsLoginMode] = useState(true);
   const [name, setName] = useState('');
@@ -28,18 +28,19 @@ export default function Auth({ onLogin }) {
     resetForm();
   };
 
-  // local helper to save token
+  // ✅ Correct token saving key
   const saveToken = (token) => {
     try {
-      localStorage.setItem('token', token);
+      localStorage.setItem('access_token', token);
     } catch (e) {
-      console.warn('saveToken error', e);
+      console.warn('saveToken error:', e);
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (loading) return;
+
     setError('');
     setLoading(true);
 
@@ -59,23 +60,24 @@ export default function Auth({ onLogin }) {
         body: JSON.stringify(payload),
       });
 
-      let data = {};
-      try {
-        data = await res.json();
-      } catch (jsonErr) {
-        if (!res.ok) throw new Error('Authentication failed');
-      }
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        throw new Error(data?.error || 'Authentication failed');
+        throw new Error(data?.error || 'Authentication failed.');
       }
 
       if (isLoginMode) {
         const { access_token, user } = data;
         if (!access_token) throw new Error('No access token returned from server.');
+
         saveToken(access_token);
-        if (typeof onLogin === 'function') onLogin(user || { email });
+
+        // ✅ Notify parent (App.js) so redirect can happen
+        if (typeof onLogin === 'function') {
+          onLogin(user || { email });
+        }
       } else {
+        // ✅ Registration success — switch to login mode
         setIsLoginMode(true);
         setPassword('');
         setError('Registered successfully. Please log in.');
@@ -89,29 +91,25 @@ export default function Auth({ onLogin }) {
   };
 
   const handleLogout = () => {
-    removeToken();
+    removeToken(); // removes access_token
     if (typeof onLogin === 'function') onLogin(null);
   };
 
-  // Pointer handling:
-  // - listen on wrapperRef so movement anywhere in the wrapper triggers
-  // - compute percentages relative to the cardRef (so gradient positions are correct)
+  // ---------------------- Pointer animation UI logic (unchanged) ----------------------
   useEffect(() => {
     const wrapperEl = wrapperRef.current;
     const cardEl = cardRef.current;
     if (!wrapperEl || !cardEl) return;
 
-    // initialize
     cardEl.style.setProperty('--mx', '50%');
     cardEl.style.setProperty('--my', '50%');
 
-    const handleMove = (e) => {
-      const clientX = (e.touches && e.touches[0]) ? e.touches[0].clientX : e.clientX;
-      const clientY = (e.touches && e.touches[0]) ? e.touches[0].clientY : e.clientY;
+    const move = (e) => {
+      const clientX = (e.touches?.[0]?.clientX) ?? e.clientX;
+      const clientY = (e.touches?.[0]?.clientY) ?? e.clientY;
       if (clientX == null || clientY == null) return;
 
       const rect = cardEl.getBoundingClientRect();
-      // compute percent relative to the card
       const xPct = ((clientX - rect.left) / rect.width) * 100;
       const yPct = ((clientY - rect.top) / rect.height) * 100;
 
@@ -124,29 +122,30 @@ export default function Auth({ onLogin }) {
       cardEl.style.setProperty('--my', '50%');
     };
 
-    wrapperEl.addEventListener('mousemove', handleMove);
-    wrapperEl.addEventListener('touchmove', handleMove, { passive: true });
+    wrapperEl.addEventListener('mousemove', move);
+    wrapperEl.addEventListener('touchmove', move, { passive: true });
     wrapperEl.addEventListener('mouseleave', reset);
     wrapperEl.addEventListener('touchend', reset);
 
-    // Also keep card's own pointer events (optional) so card still responds if user hovers directly
-    cardEl.addEventListener('mousemove', handleMove);
-    cardEl.addEventListener('touchmove', handleMove, { passive: true });
+    // also track on the card itself
+    cardEl.addEventListener('mousemove', move);
+    cardEl.addEventListener('touchmove', move, { passive: true });
     cardEl.addEventListener('mouseleave', reset);
     cardEl.addEventListener('touchend', reset);
 
     return () => {
-      wrapperEl.removeEventListener('mousemove', handleMove);
-      wrapperEl.removeEventListener('touchmove', handleMove);
+      wrapperEl.removeEventListener('mousemove', move);
+      wrapperEl.removeEventListener('touchmove', move);
       wrapperEl.removeEventListener('mouseleave', reset);
       wrapperEl.removeEventListener('touchend', reset);
 
-      cardEl.removeEventListener('mousemove', handleMove);
-      cardEl.removeEventListener('touchmove', handleMove);
+      cardEl.removeEventListener('mousemove', move);
+      cardEl.removeEventListener('touchmove', move);
       cardEl.removeEventListener('mouseleave', reset);
       cardEl.removeEventListener('touchend', reset);
     };
   }, []);
+  // ------------------------------------------------------------------
 
   return (
     <div ref={wrapperRef} className="auth-wrapper" aria-live="polite">
@@ -163,7 +162,6 @@ export default function Auth({ onLogin }) {
               <label htmlFor="auth-name">Name</label>
               <input
                 id="auth-name"
-                name="name"
                 type="text"
                 placeholder="Full name"
                 value={name}
@@ -177,7 +175,6 @@ export default function Auth({ onLogin }) {
             <label htmlFor="auth-email">Email</label>
             <input
               id="auth-email"
-              name="email"
               type="email"
               placeholder="your@example.com"
               value={email}
@@ -191,7 +188,6 @@ export default function Auth({ onLogin }) {
             <label htmlFor="auth-password">Password</label>
             <input
               id="auth-password"
-              name="password"
               type="password"
               placeholder="••••••••"
               value={password}
@@ -201,19 +197,10 @@ export default function Auth({ onLogin }) {
             />
           </div>
 
-          {error && (
-            <div className="auth-error" role="status" aria-live="polite">
-              {error}
-            </div>
-          )}
+          {error && <div className="auth-error">{error}</div>}
 
           <div className="form-actions">
-            <button
-              type="submit"
-              className="primary-btn"
-              disabled={loading}
-              aria-disabled={loading}
-            >
+            <button type="submit" className="primary-btn" disabled={loading}>
               {loading
                 ? (isLoginMode ? 'Logging in...' : 'Signing up...')
                 : (isLoginMode ? 'Login' : 'Create account')}
@@ -231,12 +218,7 @@ export default function Auth({ onLogin }) {
         </form>
 
         <div style={{ marginTop: 8 }}>
-          <button
-            className="secondary-btn"
-            onClick={handleLogout}
-            type="button"
-            title="Clear saved auth token"
-          >
+          <button className="secondary-btn" onClick={handleLogout} type="button">
             Logout (clear token)
           </button>
         </div>

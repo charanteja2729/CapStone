@@ -1,14 +1,17 @@
-// frontend/src/App.js
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+
+import Auth from './components/Auth';
 import Summarizer from './components/Summarizer';
 import VideoProcessor from './components/VideoProcessor';
 import Quiz from './components/Quiz';
 import Spinner from './components/Spinner';
 import ProfileMenu from './components/ProfileMenu';
-import Auth from './components/Auth';
-import './App.css';
+import NavBar from './components/NavBar';
+import MySummaries from './components/MySummaries';
+import WeakAreas from './components/WeakAreas';
 
+import './App.css';
 import { getAuthHeaders, getToken, removeToken } from './utils/auth';
 
 const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5000';
@@ -17,9 +20,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
-  // ref used for requestAnimationFrame loop (throttling)
   const rafRef = useRef(null);
-  // store latest pointer coords to be processed in RAF
   const pointerRef = useRef({ x: null, y: null });
 
   useEffect(() => {
@@ -29,21 +30,16 @@ export default function App() {
         setAuthLoading(false);
         return;
       }
-
       try {
         const res = await fetch(`${API_BASE}/api/me`, {
           method: 'GET',
           headers: getAuthHeaders(),
         });
-
         if (!res.ok) {
-          if (res.status === 401 || res.status === 403) {
-            removeToken();
-          }
+          if (res.status === 401 || res.status === 403) removeToken();
           setAuthLoading(false);
           return;
         }
-
         const data = await res.json().catch(() => ({}));
         setUser(data.user || null);
       } catch (err) {
@@ -52,84 +48,8 @@ export default function App() {
         setAuthLoading(false);
       }
     };
-
     attemptFetchProfile();
   }, []);
-
-  // ---------------------------
-  // Interactive pointer wiring
-  // ---------------------------
-  useEffect(() => {
-    // initialize root vars
-    const root = document.documentElement;
-    root.style.setProperty('--mx', '50%');
-    root.style.setProperty('--my', '50%');
-
-    // set pointer coords and schedule RAF update
-    const scheduleUpdate = (clientX, clientY) => {
-      pointerRef.current.x = clientX;
-      pointerRef.current.y = clientY;
-
-      if (rafRef.current != null) return; // already scheduled
-      rafRef.current = requestAnimationFrame(() => {
-        rafRef.current = null;
-        const px = pointerRef.current.x;
-        const py = pointerRef.current.y;
-        if (px == null || py == null) return;
-
-        const w = window.innerWidth || document.documentElement.clientWidth;
-        const h = window.innerHeight || document.documentElement.clientHeight;
-
-        // compute percentages and clamp 0..100
-        const xPct = Math.max(0, Math.min(100, (px / w) * 100));
-        const yPct = Math.max(0, Math.min(100, (py / h) * 100));
-
-        root.style.setProperty('--mx', `${xPct}%`);
-        root.style.setProperty('--my', `${yPct}%`);
-      });
-    };
-
-    const handleMouseMove = (e) => {
-      scheduleUpdate(e.clientX, e.clientY);
-    };
-
-    const handleTouchMove = (e) => {
-      if (e.touches && e.touches[0]) {
-        scheduleUpdate(e.touches[0].clientX, e.touches[0].clientY);
-      }
-    };
-
-    const resetToCenter = () => {
-      // cancel any waiting RAF
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-      pointerRef.current.x = null;
-      pointerRef.current.y = null;
-      root.style.setProperty('--mx', '50%');
-      root.style.setProperty('--my', '50%');
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('touchmove', handleTouchMove, { passive: true });
-    window.addEventListener('mouseleave', resetToCenter);
-    window.addEventListener('touchend', resetToCenter);
-    window.addEventListener('blur', resetToCenter);
-
-    // cleanup
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('touchmove', handleTouchMove);
-      window.removeEventListener('mouseleave', resetToCenter);
-      window.removeEventListener('touchend', resetToCenter);
-      window.removeEventListener('blur', resetToCenter);
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-    };
-  }, []); // run once on mount
 
   if (authLoading) {
     return (
@@ -147,8 +67,8 @@ export default function App() {
           element={user ? <Navigate to="/app" replace /> : <Auth onLogin={(u) => setUser(u)} />}
         />
         <Route
-          path="/app"
-          element={user ? <Dashboard user={user} setUser={setUser} /> : <Navigate to="/" replace />}
+          path="/app/*"
+          element={user ? <AuthedApp user={user} setUser={setUser} /> : <Navigate to="/" replace />}
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
@@ -156,9 +76,25 @@ export default function App() {
   );
 }
 
-// -------------------------
-// Dashboard: protected page after login
-// -------------------------
+// ----------------------
+// Protected Shell
+// ----------------------
+function AuthedApp({ user, setUser }) {
+  return (
+    <>
+      <NavBar />
+      <Routes>
+        <Route path="/" element={<Dashboard user={user} setUser={setUser} />} />
+        <Route path="/my-summaries" element={<MySummaries />} />
+        <Route path="/weak-areas" element={<WeakAreas />} />
+      </Routes>
+    </>
+  );
+}
+
+// ----------------------
+// Dashboard
+// ----------------------
 function Dashboard({ user, setUser }) {
   const [directText, setDirectText] = useState('');
   const [generatedNotes, setGeneratedNotes] = useState('');
@@ -169,10 +105,10 @@ function Dashboard({ user, setUser }) {
   const [isLoadingQuiz, setIsLoadingQuiz] = useState(false);
   const [error, setError] = useState('');
 
-  const [videoUrl, setVideoUrl] = useState('');
-  const [lastTitle, setLastTitle] = useState(''); // last processed title/topic
+  // NEW — track cache status + video title
+  const [lastTitle, setLastTitle] = useState('');
+  const [cacheHit, setCacheHit] = useState(false);
 
-  // helper that refreshes the profile and updates the top-level user state
   const refreshProfile = async () => {
     const token = getToken();
     if (!token) return;
@@ -202,7 +138,7 @@ function Dashboard({ user, setUser }) {
 
       const res = await fetch(`${API_BASE}/api/summarize`, {
         method: 'POST',
-        headers: getAuthHeaders(true), // ensure Content-Type and Authorization if available
+        headers: getAuthHeaders(true),
         body: JSON.stringify({ text: directText }),
       });
 
@@ -215,7 +151,6 @@ function Dashboard({ user, setUser }) {
       setGeneratedNotes(data.notes || '');
       if (data.title) setLastTitle(data.title);
 
-      // refresh profile so points/summarize_count/recent_topics show up
       await refreshProfile();
     } catch (err) {
       setError(err.message || 'Something went wrong while generating notes.');
@@ -251,7 +186,6 @@ function Dashboard({ user, setUser }) {
         setError('Could not generate a quiz from the provided text.');
       }
 
-      // refresh profile — generate-quiz increments points on server
       await refreshProfile();
     } catch (err) {
       setError(err.message || 'Something went wrong when generating the quiz.');
@@ -260,31 +194,17 @@ function Dashboard({ user, setUser }) {
     }
   };
 
+  // ✅ UPDATED FOR CACHE-AWARE BACKEND
   const handleVideoProcessComplete = async (data) => {
     if (!data) return;
 
-    // --- ADD THIS LOGGING ---
-    console.log("--- DEBUG: Data from /api/process-video ---");
-    console.log("Received title:", data.title);
-    if (data.quiz && data.quiz.length > 0) {
-      console.log("Received quiz[0].topic:", data.quiz[0].topic);
-    } else {
-      console.log("No quiz data received.");
-    }
-    console.log("-------------------------------------------");
-    // --- END OF LOGGING ---
-
-    if (data.notes) setGeneratedNotes(data.notes);
     if (data.notes) setGeneratedNotes(data.notes);
     if (data.quiz) setQuiz(data.quiz);
-    if (data.transcript && !directText) {
-      setDirectText(data.transcript);
-    }
+    if (data.transcript && !directText) setDirectText(data.transcript);
 
     if (data.title) setLastTitle(data.title);
-    if (data.topic) setLastTitle(data.topic);
+    if (typeof data.cache_hit === 'boolean') setCacheHit(data.cache_hit);
 
-    // server increments points on process-video; refresh profile if logged in
     await refreshProfile();
   };
 
@@ -301,16 +221,10 @@ function Dashboard({ user, setUser }) {
     }
 
     try {
-      const topicToSend =
-        // This is the new, correct logic
-        (Array.isArray(quizPayload) && quizPayload.length > 0 ? quizPayload[0].topic : null) || // <-- 1. Prioritize the topic from the quiz
-        lastTitle || // <-- 2. Fallback to the video title
-        '';
-
       const res = await fetch(`${API_BASE}/api/submit-quiz`, {
         method: 'POST',
         headers: getAuthHeaders(true),
-        body: JSON.stringify({ quiz: quizPayload, answers, topic: topicToSend }),
+        body: JSON.stringify({ quiz: quizPayload, answers }),
       });
 
       if (!res.ok) {
@@ -319,9 +233,8 @@ function Dashboard({ user, setUser }) {
       }
 
       const data = await res.json();
-      alert(`Quiz submitted. Score: ${data.correct}/${data.total}. Points awarded: ${data.points_awarded}`);
+      alert(`Quiz submitted.\nScore: ${data.correct}/${data.total}\nPoints: ${data.points_awarded}`);
 
-      // refresh profile
       await refreshProfile();
     } catch (err) {
       setError(err.message || 'Error submitting quiz.');
@@ -331,7 +244,6 @@ function Dashboard({ user, setUser }) {
   const handleLogout = () => {
     removeToken();
     setUser(null);
-    // route back to auth page will happen automatically because route guards redirect
   };
 
   return (
@@ -343,14 +255,7 @@ function Dashboard({ user, setUser }) {
         </div>
 
         <div style={{ marginLeft: 'auto' }}>
-          <ProfileMenu
-            user={user}
-            apiBase={API_BASE}
-            onLogout={() => {
-              removeToken();
-              setUser(null);
-            }}
-          />
+          <ProfileMenu user={user} apiBase={API_BASE} onLogout={handleLogout} />
         </div>
       </div>
 
@@ -367,10 +272,13 @@ function Dashboard({ user, setUser }) {
         directText={directText}
         setDirectText={setDirectText}
         handleGenerateNotes={handleGenerateNotes}
+        setGeneratedNotes={setGeneratedNotes}
         isLoadingNotes={isLoadingNotes}
         generatedNotes={generatedNotes}
         isLoadingQuiz={isLoadingQuiz}
         handleGenerateQuiz={handleGenerateQuiz}
+        lastTitle={lastTitle}
+        cacheHit={cacheHit}
       />
 
       {error && (
@@ -385,14 +293,11 @@ function Dashboard({ user, setUser }) {
 
       {quiz && !isLoadingQuiz && !isLoadingVideo && (
         <div className="quiz-section">
-          <Quiz
-            quizData={quiz}
-            onSubmit={(answers) => handleSubmitQuiz(quiz, answers)}
-          />
+          <Quiz quizData={quiz} onSubmit={(answers) => handleSubmitQuiz(quiz, answers)} />
         </div>
       )}
 
-      <div style={{ height: 60 }} /> {/* small bottom spacer */}
+      <div style={{ height: 60 }} />
     </div>
   );
 }
