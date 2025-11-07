@@ -1,0 +1,117 @@
+/* NavBar.css — full glassmorphic theme to match App.css */
+
+.nav-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2000;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.05),
+    rgba(255, 255, 255, 0.03)
+  );
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 6px 26px rgba(2, 6, 23, 0.45);
+  transition: background 240ms ease;
+}
+
+/* subtle interactive lighting (same idea as App.css) */
+.nav-bar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    420px circle at var(--mx, 50%) var(--my, 50%),
+    rgba(124, 92, 255, 0.06),
+    rgba(0, 210, 255, 0.03) 25%,
+    transparent 50%
+  );
+  mix-blend-mode: screen;
+  opacity: 0.8;
+  transition: opacity 260ms ease;
+}
+
+.nav-inner {
+  max-width: var(--content-max, 1100px);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 18px;
+  position: relative;
+  z-index: 2;
+}
+
+.brand {
+  font-weight: 800;
+  font-size: 18px;
+  color: #fff;
+  cursor: pointer;
+  transition: transform 180ms ease, opacity 180ms ease;
+}
+
+.brand:hover {
+  transform: translateY(-2px);
+  opacity: 0.9;
+}
+
+/* nav links container */
+.nav-links {
+  display: flex;
+  gap: 14px;
+}
+
+/* Each link */
+.nav-link {
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  text-decoration: none;
+  color: var(--muted, rgba(255,255,255,0.75));
+  border: 1px solid transparent;
+  transition: transform 150ms ease, box-shadow 150ms ease, color 150ms ease;
+}
+
+/* hover animation */
+.nav-link:hover {
+  transform: translateY(-2px);
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(124, 92, 255, 0.12);
+}
+
+/* active link (same gradient as buttons) */
+.nav-link.active {
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  color: white !important;
+  border: none;
+  box-shadow: 0 10px 26px rgba(124, 92, 255, 0.18);
+}
+
+/* ProfileMenu area */
+.nav-profile {
+  display: flex;
+  align-items: center;
+}
+
+/* responsive */
+@media (max-width: 720px) {
+  .nav-inner {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 10px 14px;
+  }
+  .nav-links {
+    flex-basis: 100%;
+    justify-content: center;
+  }
+  .nav-profile {
+    margin-left: auto;
+  }
+  .brand {
+    flex-basis: 100%;
+    text-align: center;
+  }
+}

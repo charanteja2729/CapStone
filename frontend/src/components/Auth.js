@@ -149,9 +149,6 @@ export default function Auth({ onLogin }) {
 
   return (
     <div ref={wrapperRef} className="auth-wrapper" aria-live="polite">
-      <div className="auth-brand">
-        <a href="/" className="auth-brand-link">Compresso</a>
-      </div>
       <div ref={cardRef} className="auth-card" role="region" aria-label="Authentication">
         <h2>{isLoginMode ? 'Login' : 'Sign up'}</h2>
         <div className="title-accent" aria-hidden />
@@ -216,12 +213,6 @@ export default function Auth({ onLogin }) {
             </button>
           </div>
         </form>
-
-        <div style={{ marginTop: 8 }}>
-          <button className="secondary-btn" onClick={handleLogout} type="button">
-            Logout (clear token)
-          </button>
-        </div>
       </div>
     </div>
   );

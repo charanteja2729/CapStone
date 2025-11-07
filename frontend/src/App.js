@@ -6,7 +6,6 @@ import Summarizer from './components/Summarizer';
 import VideoProcessor from './components/VideoProcessor';
 import Quiz from './components/Quiz';
 import Spinner from './components/Spinner';
-import ProfileMenu from './components/ProfileMenu';
 import NavBar from './components/NavBar';
 import MySummaries from './components/MySummaries';
 import WeakAreas from './components/WeakAreas';
@@ -68,7 +67,14 @@ export default function App() {
         />
         <Route
           path="/app/*"
-          element={user ? <AuthedApp user={user} setUser={setUser} /> : <Navigate to="/" replace />}
+          element={user ? (
+            <AuthedApp
+              user={user}
+              setUser={setUser}
+            />
+          ) : (
+            <Navigate to="/" replace />
+          )}
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
@@ -80,9 +86,14 @@ export default function App() {
 // Protected Shell
 // ----------------------
 function AuthedApp({ user, setUser }) {
+  const handleLogout = () => {
+    removeToken();
+    setUser(null);
+  };
+
   return (
     <>
-      <NavBar />
+      <NavBar user={user} apiBase={API_BASE} onLogout={handleLogout} />
       <Routes>
         <Route path="/" element={<Dashboard user={user} setUser={setUser} />} />
         <Route path="/my-summaries" element={<MySummaries />} />
@@ -105,7 +116,6 @@ function Dashboard({ user, setUser }) {
   const [isLoadingQuiz, setIsLoadingQuiz] = useState(false);
   const [error, setError] = useState('');
 
-  // NEW — track cache status + video title
   const [lastTitle, setLastTitle] = useState('');
   const [cacheHit, setCacheHit] = useState(false);
 
@@ -194,7 +204,6 @@ function Dashboard({ user, setUser }) {
     }
   };
 
-  // ✅ UPDATED FOR CACHE-AWARE BACKEND
   const handleVideoProcessComplete = async (data) => {
     if (!data) return;
 
@@ -241,21 +250,12 @@ function Dashboard({ user, setUser }) {
     }
   };
 
-  const handleLogout = () => {
-    removeToken();
-    setUser(null);
-  };
-
   return (
     <div className="app-container">
       <div className="dashboard-header">
         <div>
           <h1>AI Study Tools</h1>
           <p>Generate notes & quizzes from text or video</p>
-        </div>
-
-        <div style={{ marginLeft: 'auto' }}>
-          <ProfileMenu user={user} apiBase={API_BASE} onLogout={handleLogout} />
         </div>
       </div>
 

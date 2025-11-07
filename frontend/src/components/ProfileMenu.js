@@ -78,7 +78,7 @@ export default function ProfileMenu({ user, apiBase = "", onLogout }) {
     if (typeof onLogout === "function") {
       try { onLogout(); } catch {}
     }
-    try { navigate("/", { replace: true }); } catch {}
+    navigate("/login", { replace: true });
   }
 
   useEffect(() => {
@@ -102,7 +102,8 @@ export default function ProfileMenu({ user, apiBase = "", onLogout }) {
     };
   }, []);
 
-  const displayName = (profile && (profile.name || profile.email)) || "Guest";
+  const displayEmail = (profile && profile.email) || "guest@example.com";
+  const displayInitial = displayEmail[0]?.toUpperCase() || "U";
   const displayPoints = (profile && (profile.points ?? 0)) || 0;
   const recentTopics = (profile && profile.recent_topics) || [];
 
@@ -110,7 +111,7 @@ export default function ProfileMenu({ user, apiBase = "", onLogout }) {
     <div className="profile-menu" ref={menuRef} style={{ position: "relative", display: "inline-block" }}>
       <button
         type="button"
-        onClick={() => { setOpen((v) => !v); if (!open) fetchProfile(); }}
+        onClick={() => { setOpen(v => !v); if (!open) fetchProfile(); }}
         aria-haspopup="true"
         aria-expanded={open}
         className="profile-button"
@@ -121,22 +122,18 @@ export default function ProfileMenu({ user, apiBase = "", onLogout }) {
           padding: "6px 10px",
           borderRadius: 8,
           background: "transparent",
-          border: "1px solid rgba(0,0,0,0.08)",
+          border: "1px solid rgba(255,255,255,0.06)",
           cursor: "pointer",
+          color: "white"
         }}
-        title={displayName}
       >
         <div className="avatar" style={{
-          width: 34, height: 34, borderRadius: 999, display: "flex", alignItems: "center",
-          justifyContent: "center", background: "#2b6cb0", color: "white", fontWeight: 600,
+          width: 32, height: 32, borderRadius: 999, display: "flex", alignItems: "center",
+          justifyContent: "center", background: "#2b6cb0", color: "white", fontWeight: 600, fontSize: 14
         }}>
-          {(displayName && displayName[0]?.toUpperCase()) || "U"}
+          {displayInitial}
         </div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", minWidth: 120 }}>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>{displayName}</span>
-          <span style={{ fontSize: 12, color: "#666" }}>{displayPoints} pts</span>
-        </div>
-        <svg width="18" height="18" viewBox="0 0 24 24" style={{ marginLeft: 6 }}>
+        <svg width="16" height="16" viewBox="0 0 24 24">
           <path d="M7 10l5 5 5-5H7z" fill="currentColor" />
         </svg>
       </button>
@@ -148,34 +145,34 @@ export default function ProfileMenu({ user, apiBase = "", onLogout }) {
             position: "absolute",
             right: 0,
             top: "calc(100% + 8px)",
-            minWidth: 280,
+            minWidth: 260,
             background: "white",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
-            borderRadius: 8,
+            borderRadius: 10,
             padding: 12,
-            zIndex: 1200,
+            boxShadow: "0 10px 30px rgba(2,6,23,0.18)",
+            zIndex: 1200
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
             <div style={{
-              width: 46, height: 46, borderRadius: 999, display: "flex", alignItems: "center",
-              justifyContent: "center", background: "#2b6cb0", color: "white", fontWeight: 700, fontSize: 18,
+              width: 42, height: 42, borderRadius: 999, display: "flex",
+              alignItems: "center", justifyContent: "center",
+              background: "#2b6cb0", color: "white", fontWeight: 700, fontSize: 18
             }}>
-              {displayName[0]?.toUpperCase() || "U"}
+              {displayInitial}
             </div>
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              <strong style={{ fontSize: 14 }}>{displayName}</strong>
-              <span style={{ fontSize: 13, color: "#555" }}>{profile && profile.email}</span>
+            <div>
+              <strong style={{ fontSize: 14 }}>{displayEmail}</strong>
             </div>
           </div>
 
-          <div style={{ marginTop: 8 }}>
-            <div style={{ fontSize: 12, color: "#888", marginBottom: 6 }}>Points</div>
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Points</div>
             <div style={{ fontSize: 16, fontWeight: 700 }}>{displayPoints}</div>
           </div>
 
           <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 12, color: "#888", marginBottom: 6 }}>Recent topics</div>
+            <div style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>Recent topics</div>
             {recentTopics.length === 0 ? (
               <div style={{ fontSize: 13, color: "#666" }}>No recent topics</div>
             ) : (
@@ -183,30 +180,10 @@ export default function ProfileMenu({ user, apiBase = "", onLogout }) {
                 {recentTopics.slice(0, 5).map((t, idx) => (
                   <li key={idx} style={{ fontSize: 13, marginBottom: 6 }}>
                     <strong>{t.title}</strong>
-                    <div style={{ fontSize: 11, color: "#888" }}>
-                      {t.time ? new Date(t.time).toLocaleString() : ""}
-                    </div>
                   </li>
                 ))}
               </ul>
             )}
-          </div>
-
-          <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
-            <button
-              type="button"
-              onClick={() => navigate('/app/my-summaries')}
-              style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.06)', background: '#fff', cursor: 'pointer' }}
-            >
-              My Notes
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/app/weak-areas')}
-              style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.06)', background: '#fff', cursor: 'pointer' }}
-            >
-              Weak Areas
-            </button>
           </div>
 
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
