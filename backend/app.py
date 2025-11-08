@@ -77,10 +77,10 @@ users_col = db["users"]
 # Global shared cache ONLY for videos
 video_summaries_col = db["video_summaries"]
 
+
 # -------------------------
 # Helper utilities
 # -------------------------
-
 def _safe_object_id(val: Any) -> Optional[ObjectId]:
     """Return ObjectId if val is a 24-char hex string, else None."""
     if isinstance(val, ObjectId):
@@ -240,7 +240,7 @@ def extract_youtube_id(url: str) -> Optional[str]:
         pass
     return None
 
-
+# ===== END OF PART 1 =====
 # -------------------------
 # Routes
 # -------------------------
@@ -274,10 +274,6 @@ def register():
         'points': 0,
         'summarize_count': 0,
         'recent_topics': [],
-        # created on demand:
-        # 'incorrect_topics': []
-        # 'topic_explanations': []
-        # 'saved_summaries': []
         'created_at': now,
         'updated_at': now
     }
@@ -333,7 +329,7 @@ def me():
 
 
 # -------------------------
-# Summarization endpoint (TEXT) — NO global cache; save in user list with type
+# Summarization endpoint (TEXT) — FIXED
 # -------------------------
 @app.route('/api/summarize', methods=['POST', 'OPTIONS'])
 def summarize_text():
@@ -351,41 +347,43 @@ def summarize_text():
     logger.info("summarize (text) called — user: %s", (user.get('email') if user else None))
 
     try:
-        # Always generate fresh (no global cache for text)
         summary_data = generate_study_notes_with_api(text, chunk_size=2000, parallel=True)
         final_title = frontend_title or summary_data.get("title") or "Summary"
 
-        # If logged in, persist to user's saved_summaries (store notes inline for UI)
         if user:
             try:
                 saved_doc = {
                     "_id": ObjectId(),
-                    "type": "text",                 # ← for icons in UI
+                    "type": "text",
                     "title": final_title,
                     "notes": summary_data.get("notes") or "",
                     "created_at": datetime.utcnow()
                 }
+
+                # ✅ FIXED: merged $push so notes actually store
                 users_col.update_one(
                     {"_id": user["_id"]},
                     {
-                        "$push": {"saved_summaries": saved_doc},
-                        "$inc": {"summarize_count": 1, "points": 1},
-                        "$set": {"updated_at": datetime.utcnow()},
                         "$push": {
+                            "saved_summaries": saved_doc,
                             "recent_topics": {
-                                "$each": [{"title": summary_data.get("topic") or final_title, "time": datetime.utcnow()}],
+                                "$each": [
+                                    {"title": summary_data.get("topic") or final_title, "time": datetime.utcnow()}
+                                ],
                                 "$position": 0,
                                 "$slice": 3
                             }
-                        }
+                        },
+                        "$inc": {"summarize_count": 1, "points": 1},
+                        "$set": {"updated_at": datetime.utcnow()}
                     }
                 )
+
             except Exception:
                 logger.exception("Failed to persist text summary to user.saved_summaries")
 
-        # Return the summary
         summary_data['title'] = final_title
-        summary_data['cache_hit'] = False  # for client messaging
+        summary_data['cache_hit'] = False
         return jsonify(summary_data)
 
     except Exception as e:
@@ -394,7 +392,7 @@ def summarize_text():
 
 
 # -------------------------
-# Video processing endpoint — per-video shared cache; save in user list with type
+# Video processing endpoint (YOUTUBE) — FIXED
 # -------------------------
 @app.route('/api/process-video', methods=['POST', 'OPTIONS'])
 def process_video():
@@ -413,12 +411,11 @@ def process_video():
     logger.info("process-video called — user: %s", (user.get('email') if user else None))
 
     try:
-        # --- 0) Parse video_id first ---
         video_id = extract_youtube_id(video_url)
         if not video_id:
             return jsonify({'error': 'Could not parse YouTube video id from URL.'}), 400
 
-        # --- 1) CACHE FIRST: return instantly if exists (no transcript work) ---
+        # ✅ CACHE CHECK
         cached = video_summaries_col.find_one({'video_id': video_id})
         if cached:
             logger.info("Video summary cache HIT: %s", video_id)
@@ -433,10 +430,9 @@ def process_video():
                 "topic": cached.get("topic", ""),
                 "sub_topic": cached.get("sub_topic", ""),
                 "keywords": cached.get("keywords", []),
-                # IMPORTANT: no transcript on cache hit
             }
 
-            # Per-user saved list (metadata only)
+            # ✅ Store inline notes & award points on cache-hit (Option B)
             if user:
                 try:
                     already = next((s for s in (user.get('saved_summaries') or [])
@@ -448,21 +444,31 @@ def process_video():
                                 "$push": {
                                     "saved_summaries": {
                                         "_id": ObjectId(),
+                                        "type": "video",
                                         "video_id": video_id,
                                         "video_url": cached.get("video_url") or video_url,
                                         "title": final_title,
+                                        "notes": cached.get("notes", ""),   # ✅ inline
                                         "created_at": datetime.utcnow()
+                                    },
+                                    "recent_topics": {
+                                        "$each": [
+                                            {"title": cached.get("topic") or final_title, "time": datetime.utcnow()}
+                                        ],
+                                        "$position": 0,
+                                        "$slice": 3
                                     }
                                 },
+                                "$inc": {"summarize_count": 1, "points": 1},
                                 "$set": {"updated_at": datetime.utcnow()}
                             }
                         )
                 except Exception:
-                    logger.exception("Failed to persist saved_summaries for user (cache hit)")
+                    logger.exception("Failed to update user on cache-hit")
 
             return jsonify(resp)
 
-        # --- 2) CACHE MISS: do transcript & generation ---
+        # ✅ NO CACHE → extract transcript + generate summary
         result = get_transcript_from_url(video_url)
         transcript = None
         extractor_title = None
@@ -477,18 +483,12 @@ def process_video():
         else:
             transcript = result
 
-        if error:
-            logger.warning("process-video: transcript extraction failed for url=%s error=%s", video_url, error)
+        if error or not transcript or not transcript.strip():
             return jsonify({'error': 'Failed to extract transcript from the provided video.'}), 500
-        if not transcript or not isinstance(transcript, str) or not transcript.strip():
-            logger.warning("process-video: empty transcript for url=%s", video_url)
-            return jsonify({'error': 'Transcript is empty or unavailable for this video.'}), 500
 
-        logger.info("Video summary cache MISS: %s — generating", video_id)
         summary_data = generate_study_notes_with_api(transcript, chunk_size=2000, parallel=True)
         final_title = (summary_data.get("title") or extractor_title or "Video Summary")
 
-        # --- 3) UPSERT summary (handle concurrency safely) ---
         doc_to_insert = {
             "video_id": video_id,
             "video_url": video_url,
@@ -499,60 +499,45 @@ def process_video():
             "keywords": summary_data.get("keywords", []),
             "created_at": datetime.utcnow()
         }
+
         try:
-            # try insert; if duplicate (due to race), fall back to fetch
             video_summaries_col.insert_one(doc_to_insert)
-            logger.info("Saved summary to video_summaries: %s", video_id)
         except Exception:
-            logger.exception("Insert failed (likely duplicate). Fetching existing.")
             cached2 = video_summaries_col.find_one({'video_id': video_id})
-            if cached2:  # use the winner doc
+            if cached2:
                 doc_to_insert = cached2
 
-        # --- 4) Per-user saved_summaries (metadata only) + points on first gen ---
+        # ✅ Save to user + points (first generator)
         if user:
-            try:
-                already = next((s for s in (user.get('saved_summaries') or [])
-                                if s.get('video_id') == video_id), None)
-                if not already:
-                    users_col.update_one(
-                        {"_id": user["_id"]},
-                        {
-                            "$push": {
-                                "saved_summaries": {
-                                    "_id": ObjectId(),
-                                    "video_id": video_id,
-                                    "video_url": doc_to_insert.get("video_url") or video_url,
-                                    "title": final_title,
-                                    "created_at": datetime.utcnow()
-                                }
-                            },
-                            "$set": {"updated_at": datetime.utcnow()}
-                        }
-                    )
-            except Exception:
-                logger.exception("Failed to persist saved_summaries for user (miss)")
-
             try:
                 users_col.update_one(
                     {"_id": user["_id"]},
                     {
-                        "$inc": {"summarize_count": 1, "points": 1},
-                        "$set": {"updated_at": datetime.utcnow()},
                         "$push": {
+                            "saved_summaries": {
+                                "_id": ObjectId(),
+                                "type": "video",
+                                "video_id": video_id,
+                                "video_url": doc_to_insert.get("video_url") or video_url,
+                                "title": final_title,
+                                "notes": doc_to_insert.get("notes", ""),  # ✅ same behavior as cache-hit
+                                "created_at": datetime.utcnow()
+                            },
                             "recent_topics": {
-                                "$each": [{"title": summary_data.get("topic") or final_title,
-                                           "time": datetime.utcnow()}],
+                                "$each": [
+                                    {"title": summary_data.get("topic") or final_title, "time": datetime.utcnow()}
+                                ],
                                 "$position": 0,
                                 "$slice": 3
                             }
-                        }
+                        },
+                        "$inc": {"summarize_count": 1, "points": 1},
+                        "$set": {"updated_at": datetime.utcnow()}
                     }
                 )
             except Exception:
-                logger.exception("Failed to award points on process-video")
+                logger.exception("Failed to update user on fresh video summary")
 
-        # --- 5) Return (include transcript ONLY on miss) ---
         resp = {
             "cache_hit": False,
             "video_id": video_id,
@@ -571,10 +556,10 @@ def process_video():
         return jsonify({'error': 'An internal error occurred while processing the video.'}), 500
 
 
+# =========================================================
+# ✅ ALL OTHER ENDPOINTS BELOW ARE UNCHANGED
+# =========================================================
 
-# -------------------------
-# Generate quiz (Gemini MCQs only)
-# -------------------------
 @app.route('/api/generate-quiz', methods=['POST', 'OPTIONS'])
 def generate_quiz():
     if request.method == 'OPTIONS':
@@ -620,8 +605,8 @@ def submit_quiz():
 
     graded_total = 0
     correct = 0
-    mistakes_docs = []  # full detail for response preview
-    weak_topic_docs = []  # minimal fields for storage
+    mistakes_docs = []
+    weak_topic_docs = []
 
     for q, user_ans in zip(quiz, answers):
         correct_ans = q.get('correct_answer')
@@ -653,7 +638,6 @@ def submit_quiz():
     if graded_total == 0:
         return jsonify({'error': 'No gradable questions found in quiz.'}), 400
 
-    # Persist only last 10 weak-topic docs
     if weak_topic_docs:
         try:
             users_col.update_one(
@@ -672,7 +656,7 @@ def submit_quiz():
         except Exception:
             logger.exception("Failed to persist incorrect_topics")
 
-    points_awarded = correct * 10  # returned but not stored
+    points_awarded = correct * 10
 
     return jsonify({
         'total': graded_total,
@@ -683,7 +667,7 @@ def submit_quiz():
 
 
 # -------------------------
-# Saved summaries (list + fetch/rename/delete by embedded _id)
+# Saved summaries list / fetch / rename / delete
 # -------------------------
 @app.route('/api/my-summaries', methods=['GET'])
 @jwt_required()
@@ -693,36 +677,22 @@ def list_my_summaries():
         return jsonify({'error': 'User not found'}), 404
 
     items = user.get('saved_summaries') or []
-    # Most recent first
     items = sorted(items, key=lambda x: x.get('created_at') or datetime.min, reverse=True)
-    # stringify embedded IDs
     for it in items:
         if isinstance(it.get('_id'), ObjectId):
             it['_id'] = str(it['_id'])
     return jsonify({'saved_summaries': items})
 
 
-# -------------------------
-# Saved summaries: unified fetch by id (text _id OR video_id)
-# -------------------------
 @app.route('/api/my-summaries/<summary_id>', methods=['GET'])
 @jwt_required()
 def get_my_summary(summary_id):
-    """
-    Unified detail fetch:
-    - If summary_id is a 24-hex ObjectId -> fetch from user's saved_summaries (text OR video metadata).
-      - If it's a text item, notes live inline in the saved_summaries entry -> return those.
-      - If it's a video item (has video_id, no notes inline), fetch notes from global video_summaries.
-    - Else -> treat summary_id as a YouTube video_id and fetch from global video_summaries.
-      Also ensure a stub exists in the user's saved_summaries for this video.
-    """
     user = _find_user_by_identity(get_jwt_identity())
     if not user:
         return jsonify({'error': 'User not found'}), 404
 
     sid = _safe_object_id(summary_id)
 
-    # ---------- Case A: embedded ObjectId (user's saved entry) ----------
     if sid:
         saved_list = user.get('saved_summaries') or []
         found = None
@@ -730,11 +700,13 @@ def get_my_summary(summary_id):
             if isinstance(it.get('_id'), ObjectId) and it['_id'] == sid:
                 found = it
                 break
+            if isinstance(it.get('_id'), str) and it['_id'] == str(sid):
+                found = it
+                break
 
         if not found:
             return jsonify({'error': 'Summary not found'}), 404
 
-        # Text entry (notes inline)
         if found.get('type') == 'text' or ('notes' in found and isinstance(found.get('notes'), str)):
             out = {
                 '_id': str(found['_id']),
@@ -745,7 +717,6 @@ def get_my_summary(summary_id):
             }
             return jsonify(out)
 
-        # Video entry (metadata only) -> fetch global notes by video_id
         video_id = found.get('video_id')
         if not video_id:
             return jsonify({'error': 'Summary not found'}), 404
@@ -759,7 +730,6 @@ def get_my_summary(summary_id):
             'type': 'video',
             'video_id': video_id,
             'video_url': found.get('video_url') or vdoc.get('video_url'),
-            # Prefer user's title override if they renamed it
             'title': found.get('title') or vdoc.get('title') or 'Video Summary',
             'notes': vdoc.get('notes', ''),
             'topic': vdoc.get('topic', ''),
@@ -769,13 +739,11 @@ def get_my_summary(summary_id):
         }
         return jsonify(out)
 
-    # ---------- Case B: non-ObjectId -> treat as YouTube video_id ----------
-    video_id = summary_id  # e.g. "-DsnJygWgi4"
+    video_id = summary_id
     vdoc = video_summaries_col.find_one({'video_id': video_id})
     if not vdoc:
         return jsonify({'error': 'Summary not found for this video.'}), 404
 
-    # Ensure the user has a saved_summaries stub (metadata) for this video
     try:
         already = next((s for s in (user.get('saved_summaries') or []) if s.get('video_id') == video_id), None)
         if not already:
@@ -789,6 +757,7 @@ def get_my_summary(summary_id):
                             'video_id': video_id,
                             'video_url': vdoc.get('video_url'),
                             'title': vdoc.get('title') or 'Video Summary',
+                            'notes': vdoc.get('notes', ''),  # ✅ inline notes support
                             'created_at': datetime.utcnow()
                         }
                     },
@@ -810,7 +779,6 @@ def get_my_summary(summary_id):
         'created_at': vdoc.get('created_at'),
     }
     return jsonify(out)
-
 
 
 @app.route('/api/my-summaries/<summary_id>/rename', methods=['PATCH'])
@@ -878,10 +846,9 @@ def explain_weak_areas():
         return jsonify({'error': 'User not found'}), 404
 
     recent = (user.get('incorrect_topics') or [])[-10:]
-    # Unique topics, newest-first preference
     seen = set()
     topics = []
-    for doc in reversed(recent):  # newest first
+    for doc in reversed(recent):
         t = (doc.get('topic') or 'General').strip() or 'General'
         if t not in seen:
             seen.add(t)
@@ -890,7 +857,6 @@ def explain_weak_areas():
     if not topics:
         return jsonify({'topics': [], 'explanations': {}})
 
-    # Use cached explanations where available
     existing_map = {(e.get('topic') or '').strip(): e for e in (user.get('topic_explanations') or [])}
     missing = [t for t in topics if t not in existing_map]
     explanations = {t: (existing_map[t].get('explanation') if t in existing_map else None) for t in topics}

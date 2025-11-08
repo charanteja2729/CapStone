@@ -17,8 +17,8 @@ export default function Summarizer({
   generatedNotes,
   isLoadingQuiz,
   handleGenerateQuiz,
-  lastTitle, // ✅ NEW
-  cacheHit,  // ✅ NEW
+  lastTitle,
+  cacheHit,
 }) {
   const [error, setError] = useState("");
   const [isVideoLoading, setIsVideoLoading] = useState(false);
@@ -27,7 +27,7 @@ export default function Summarizer({
     e.preventDefault();
     setError("");
 
-    const text = directText.trim();
+    const text = (directText || "").trim();
     if (!text) {
       setError("Please paste text or a YouTube URL first.");
       return;
@@ -35,10 +35,10 @@ export default function Summarizer({
 
     const ytMatch = text.match(YT_REGEX);
 
-    // ✅ Normal text mode → use original handler
+    // Text mode → use original handler
     if (!ytMatch) return handleGenerateNotes(e);
 
-    // ✅ YouTube video mode
+    // YouTube video mode
     setIsVideoLoading(true);
     try {
       const res = await fetch(`${API_BASE}/api/process-video`, {
@@ -50,11 +50,13 @@ export default function Summarizer({
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Failed to process video.");
 
-      // ✅ Always show notes
+      // Always show notes
       if (data.notes) setGeneratedNotes(data.notes);
 
-      // ✅ Only set transcript when not from cache
-      if (!data.cache_hit && data.transcript) {
+      // ✅ QUIZ FROM CACHE: set quiz source to notes (fallback to transcript if notes missing)
+      if (data.notes) {
+        setDirectText(data.notes);
+      } else if (!data.cache_hit && data.transcript) {
         setDirectText(data.transcript);
       }
     } catch (err) {
@@ -104,7 +106,6 @@ export default function Summarizer({
         <div className={styles.notesSection}>
           <h2>Generated Notes</h2>
 
-          {/* ✅ Show title + cache badge */}
           {lastTitle && (
             <p className={styles.noteTitle}>
               <strong>{lastTitle}</strong>{" "}

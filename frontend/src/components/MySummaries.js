@@ -1,4 +1,3 @@
-// src/components/MySummaries.js
 import React, { useEffect, useState } from "react";
 import { getAuthHeaders } from "../utils/auth";
 import ReactMarkdown from "react-markdown";
@@ -21,11 +20,12 @@ export default function MySummaries() {
         headers: getAuthHeaders(),
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load saved summaries");
       const list = data.saved_summaries || [];
       setItems(list);
       if (list[0]) setActive(list[0]);
     } catch (e) {
-      setErr("Failed to load saved summaries");
+      setErr(e.message || "Failed to load saved summaries");
     } finally {
       setLoading(false);
     }
@@ -53,14 +53,20 @@ export default function MySummaries() {
     }
   };
 
-  useEffect(() => { fetchSummaries(); }, []);
+  useEffect(() => {
+    fetchSummaries();
+  }, []);
 
-  // ✅ unified id: use _id for text entries; fallback to video_id for video entries
+  useEffect(() => {
+    const handler = () => fetchSummaries();
+    window.addEventListener("refreshSavedSummaries", handler);
+    return () => window.removeEventListener("refreshSavedSummaries", handler);
+  }, []);
+
   useEffect(() => {
     const detailId = active?._id || active?.video_id || null;
     if (detailId) fetchDetail(detailId);
     else setActiveDetail(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?._id, active?.video_id]);
 
   async function renameItem(id, currentTitle) {
@@ -100,14 +106,18 @@ export default function MySummaries() {
         <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
           {items.map((s) => (
             <li
-              key={s._id}
+              
+              key={s._id || s.video_id}
               onClick={() => setActive(s)}
               style={{
                 padding: "10px 8px",
                 borderRadius: 8,
                 marginBottom: 6,
                 cursor: "pointer",
-                background: active?._id === s._id ? "rgba(16,185,129,0.08)" : "transparent",
+                background:
+                  (active?._id || active?.video_id) === (s._id || s.video_id)
+                    ? "rgba(16,185,129,0.08)"
+                    : "transparent",
               }}
             >
               <div
@@ -131,7 +141,6 @@ export default function MySummaries() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    // rename uses embedded _id; video entries have it too
                     renameItem(s._id, s.title);
                   }}
                   style={{

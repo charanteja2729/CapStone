@@ -136,6 +136,12 @@ function Dashboard({ user, setUser }) {
     }
   };
 
+  const notifySavedListRefresh = () => {
+    try {
+      window.dispatchEvent(new Event('refreshSavedSummaries'));
+    } catch {}
+  };
+
   const handleGenerateNotes = async (e) => {
     e && e.preventDefault && e.preventDefault();
     setIsLoadingNotes(true);
@@ -160,8 +166,13 @@ function Dashboard({ user, setUser }) {
       const data = await res.json();
       setGeneratedNotes(data.notes || '');
       if (data.title) setLastTitle(data.title);
+      setCacheHit(Boolean(data.cache_hit));
+
+      // Make quiz work from notes (text mode)
+      if (data.notes) setDirectText(data.notes);
 
       await refreshProfile();
+      notifySavedListRefresh(); // refresh MySummaries sidebar
     } catch (err) {
       setError(err.message || 'Something went wrong while generating notes.');
     } finally {
@@ -207,14 +218,21 @@ function Dashboard({ user, setUser }) {
   const handleVideoProcessComplete = async (data) => {
     if (!data) return;
 
+    // Always show notes
     if (data.notes) setGeneratedNotes(data.notes);
-    if (data.quiz) setQuiz(data.quiz);
-    if (data.transcript && !directText) setDirectText(data.transcript);
+
+    // ✅ IMPORTANT: make quiz work on cache hits by using notes as quiz source
+    if (data.notes) {
+      setDirectText(data.notes);
+    } else if (data.transcript) {
+      setDirectText(data.transcript);
+    }
 
     if (data.title) setLastTitle(data.title);
     if (typeof data.cache_hit === 'boolean') setCacheHit(data.cache_hit);
 
     await refreshProfile();
+    notifySavedListRefresh();
   };
 
   const handleSubmitQuiz = async (quizPayload, answers) => {
