@@ -1,4 +1,4 @@
-                                                                                  **Adaptive Study Guide Generator**
+**                                                                                  **Adaptive Study Guide Generator**
 
 AI-powered personalized learning platform that extracts educational content from YouTube videos, summarizes it intelligently, explains it in a simplified manner, and generates adaptive quizzes to enhance student learning.
 
